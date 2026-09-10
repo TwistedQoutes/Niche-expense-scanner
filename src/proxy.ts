@@ -17,7 +17,7 @@ import { SESSION_COOKIE } from '@/lib/auth/session';
  * divergent copy of the auth logic.
  */
 const PROTECTED_PREFIXES = ['/dashboard', '/scan', '/settings'];
-const AUTH_ROUTES = ['/login', '/signup'];
+const AUTH_ROUTES = ['/login', '/signup', '/forgot-password'];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;

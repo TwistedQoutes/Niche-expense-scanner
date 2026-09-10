@@ -34,9 +34,12 @@ export function expenseWhere(userId: string, filters: ExpenseFilters): Prisma.Ex
   }
 
   if (filters.search) {
-    // SQLite's `contains` is case-insensitive for ASCII by default; on Postgres
-    // add `mode: 'insensitive'` here.
-    where.OR = [{ merchant: { contains: filters.search } }, { notes: { contains: filters.search } }];
+    // Postgres `LIKE` is case-sensitive, so searching "kingpin" would miss
+    // "Kingpin Tattoo Supply" without this.
+    where.OR = [
+      { merchant: { contains: filters.search, mode: 'insensitive' } },
+      { notes: { contains: filters.search, mode: 'insensitive' } },
+    ];
   }
 
   return where;

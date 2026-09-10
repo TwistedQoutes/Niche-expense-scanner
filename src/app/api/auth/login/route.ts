@@ -26,6 +26,7 @@ export const POST = withRoute(async (request) => {
       email: true,
       studioName: true,
       storeReceiptImages: true,
+      sessionVersion: true,
       passwordHash: true,
     },
   });
@@ -43,7 +44,13 @@ export const POST = withRoute(async (request) => {
     throw invalid;
   }
 
-  await setSessionCookie(await createSessionToken({ userId: user.id, email: user.email }));
+  await setSessionCookie(
+    await createSessionToken({
+      userId: user.id,
+      email: user.email,
+      sessionVersion: user.sessionVersion,
+    }),
+  );
 
   return jsonOk<{ user: UserDto }>({
     user: {

@@ -157,6 +157,26 @@ export const updateExpenseSchema = attachSumInvariant(
     ),
 );
 
+export const forgotPasswordSchema = z.object({ email: emailSchema });
+
+export const deleteAccountSchema = z.object({
+  // Not `passwordSchema`: an account created before the current policy must
+  // still be deletable by its owner.
+  password: z.string().min(1, 'Enter your password to confirm.').max(200),
+  confirm: z.literal('DELETE', {
+    message: 'Type DELETE to confirm.',
+  }),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'That link is missing its token.').max(256),
+  password: passwordSchema,
+});
+
+export const verifyEmailSchema = z.object({
+  token: z.string().min(1, 'That link is missing its token.').max(256),
+});
+
 export const updateSettingsSchema = z
   .object({
     storeReceiptImages: z.boolean().optional(),

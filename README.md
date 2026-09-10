@@ -39,6 +39,9 @@ makes automatic categorisation possible at all.
 | Splitting one receipt across categories, suggested automatically | `src/lib/expenses/split.ts`, `src/components/scan/SplitEditor.tsx` |
 | Mobile-first dashboard, month filter, CSV export | `src/components/dashboard/`, `src/app/api/expenses/export/` |
 | Optional receipt image retention, off by default | `src/lib/storage/`, `src/app/api/expenses/[id]/receipt/` |
+| Password reset, email verification, session revocation | `src/lib/auth/tokens.ts`, `src/app/api/auth/` |
+| Stripe subscriptions with a trial and a read-only paywall | `src/lib/billing/`, `src/app/api/billing/`, `src/app/api/webhooks/stripe/` |
+| Data export, account deletion, terms and privacy policy | `src/app/api/account/`, `src/app/legal/` |
 
 ---
 
@@ -157,15 +160,22 @@ niche-expense-scanner/
 
 ## Running it
 
-Requires Node 20+.
+Requires Node 22.12+ and a Postgres database.
 
 ```bash
 npm install                     # also stages the OCR engine and generates the Prisma client
-cp .env.example .env            # then set AUTH_SECRET
-npm run db:push                 # create the SQLite database
+cp .env.example .env            # set DATABASE_URL and AUTH_SECRET
+npx prisma migrate deploy       # create the schema
 npm run db:seed                 # optional: demo account with sample expenses
 npm run dev                     # http://localhost:3000
 ```
+
+**Deploying for real?** `DEPLOYMENT.md` is the click-by-click runbook: database,
+email, Stripe, environment variables, the webhook, and the checklist to run
+before taking a first payment.
+
+Postgres in every environment, including local development — dev/prod parity
+matters more than zero-setup once real money and real tax records are involved.
 
 Generate a real secret:
 
@@ -182,7 +192,8 @@ Seeded demo login: `demo@studio.test` / `tattoo-demo-2026`.
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
 | `npm test` | Vitest |
-| `npm run db:push` / `db:migrate` / `db:studio` | Prisma schema and data tools |
+| `npm run db:migrate` / `db:studio` | Create a migration, browse data |
+| `npm run db:migrate:deploy` | Apply committed migrations — the production command |
 | `npm run db:backfill` | One-off: gives pre-split rows their category line |
 | `npm run setup:ocr` | Re-stage `public/ocr` |
 
@@ -373,6 +384,36 @@ Security decisions worth naming:
 Uploading is deliberately decoupled from saving: if it fails, the artist still has their
 expense and gets told the picture did not stick.
 
+### 6. Accounts, billing and the paywall
+
+**Password recovery** works on hashed, single-use tokens: only a SHA-256 of the
+emailed token is stored, so a database leak is not an account-takeover kit.
+Requesting a reset always answers identically whether or not the address exists,
+so the endpoint cannot enumerate customers.
+
+Completing a reset bumps `sessionVersion`, which is carried inside the session
+JWT and compared on every request. That is what makes a self-contained token
+revocable: resetting a password — or pressing "sign out on all devices" — kills
+every existing session immediately, rather than leaving a stolen one valid for
+up to a week.
+
+**Billing** is Stripe Checkout (card details never touch this server, keeping
+PCI scope minimal) plus a signature-verified, idempotent webhook. Every event id
+is recorded before processing, so Stripe's retries cannot double-apply one; a
+handler failure deletes that record so the retry can legitimately have another
+go.
+
+**The paywall's shape is the important part.** After the trial an account goes
+*read-only*, not locked: an artist can still view, edit, export and delete
+everything they have recorded — they simply cannot add new expenses. Holding
+someone's tax substantiation hostage over a lapsed card is both indecent and a
+reliable way to earn chargebacks in a community where everyone knows each other.
+A `past_due` card keeps working while Stripe retries, for the same reason.
+
+If Stripe is not configured at all, the app is free and fully functional. That
+default is deliberate: a missing API key must never lock artists out of their
+own records.
+
 ---
 
 ## Security posture
@@ -391,7 +432,11 @@ expense and gets told the picture did not stick.
 | Receipt privacy | Text recognition runs in the browser, so the image never has to be uploaded. Retention is opt-in per artist and off by default; when on, EXIF (including GPS) is stripped before upload, and turning it off deletes what was kept. The UI copy changes with the setting rather than overclaiming |
 | Uploaded file handling | Type established by magic bytes, not the declared header; SVG rejected; 5 MB cap enforced on both the declared and real length; served with `nosniff` and `private, no-store` |
 | Storage path safety | Keys generated server-side with a random component, validated by pattern *and* resolved-path containment; files kept outside `public/` and reachable only through an ownership-checked route |
-| Secrets | Validated at boot (`AUTH_SECRET` ≥ 32 chars); `.env` is git-ignored and errors log key names, never values |
+| Secrets | Validated at boot (`AUTH_SECRET` ≥ 32 chars, driver credentials checked against their driver); `.env` is git-ignored and errors log key names, never values |
+| Password recovery | Single-use tokens, stored only as SHA-256, 1-hour expiry, redeemed by conditional update so a race cannot redeem twice; identical response whether or not the account exists |
+| Session revocation | `sessionVersion` in the token is compared to the database each request — a password reset or "sign out everywhere" invalidates every outstanding session at once |
+| Payment data | Stripe Checkout and Customer Portal; no card details reach this server. Webhooks are signature-verified against the raw body and made idempotent by event id |
+| Account deletion | Requires the current password, removes stored images before the row, cancels the Stripe subscription, and cascades expenses and tokens |
 | Error leakage | Unexpected errors return a generic message plus an incident id; details stay in the server log |
 
 ---
@@ -417,7 +462,7 @@ failures, unreadable images and expired sessions all have their own user-facing 
 npm test
 ```
 
-138 tests over the logic where a bug is expensive and silent:
+153 tests over the logic where a bug is expensive and silent:
 
 - **`parse-receipt`** — subtotal vs total, cash tendered, "total items", ambiguous and
   textual dates, future-date rejection, non-USD currency, incoherent tax, merchant selection,
@@ -437,6 +482,9 @@ npm test
 - **`csv`** — quoting and formula-injection neutralisation.
 - **`storage`** — magic-byte sniffing (including SVG, HTML and a RIFF file that is not WebP),
   key validation, and a local driver that refuses to read or write outside its root.
+- **`billing`** — every trial and subscription state, including the ones easy to get wrong:
+  a `past_due` card that must keep working, a cancellation during a still-valid trial, and
+  unknown Stripe statuses that must fail closed rather than assume the best.
 
 The full scan flow was also driven end-to-end in a real Chromium — sign-up, image upload,
 in-browser OCR, review, save, dashboard, CSV download — against a rendered receipt image,
@@ -471,28 +519,21 @@ under Settings → Branches.
 
 ## Going to production
 
-1. **Postgres.** Set `provider = "postgresql"` in `prisma/schema.prisma`, swap
-   `PrismaBetterSqlite3` for `PrismaPg` in `src/lib/db.ts`, then `npm run db:migrate`.
-   Add `mode: 'insensitive'` to the search filter in `expenses/queries.ts`.
-2. **Drop the deprecated category columns.** `Expense.category`, `categoryConfidence` and
-   `categorySource` are superseded by `ExpenseLine` and kept only so `npm run db:backfill` can
-   read them. Once every deployment has run the backfill, remove them from the schema and the
-   fallback branch in `serialiseExpense`.
-3. **Shared rate limiting.** The limiter is per-process. Behind more than one instance,
-   back `enforceRateLimit` with Redis — the call sites do not change.
-4. **Tighten the CSP.** `script-src` currently allows `'unsafe-inline'` for Next's runtime;
-   move to a per-request nonce.
-5. **Session revocation.** JWTs are self-contained, so sign-out is client-side only. For
-   "sign out everywhere", add a `sessionVersion` column and check it in `requireUser()`.
-6. **Password reset and email verification.** Neither exists yet; both need an email provider.
-7. **Object storage for receipt images.** The local driver writes to `./storage`, which is
-   single-node only. For anything horizontally scaled, implement the three-method
-   `StorageDriver` contract against S3/R2 and return it from `resolveStorage()` — no call site
-   changes. Consider signed URLs at that point so image bytes do not proxy through the app.
-8. **Observability.** Incident ids are logged but not shipped anywhere; wire up error tracking
-   and alert on the `/api/health` probe.
+`DEPLOYMENT.md` has the full runbook. What remains genuinely undone:
 
----
+1. **Object storage for receipt images.** The `local` driver needs a persistent
+   disk, so image retention is unavailable on serverless hosting. Implement the
+   three-method `StorageDriver` contract against S3/R2 and return it from
+   `resolveStorage()` — no call site changes.
+2. **Error tracking.** Incident ids are logged and go nowhere. Add Sentry.
+3. **Shared rate limiting.** The limiter is per-process; behind several
+   instances the effective limits multiply. Move `enforceRateLimit` to Redis.
+4. **Tighten the CSP.** `script-src` still allows `'unsafe-inline'` for Next's
+   runtime; per-request nonces are the hardening step.
+5. **Drop the deprecated category columns** on `Expense`, once every deployment
+   has run `npm run db:backfill`.
+6. **Legal review.** The drafted terms and privacy policy are honest about what
+   the code does but have not been seen by a lawyer — see DEPLOYMENT.md.
 
 ## Known limitations
 

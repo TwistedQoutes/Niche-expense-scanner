@@ -1,4 +1,4 @@
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 
 import { getEnv } from '@/lib/env';
@@ -6,17 +6,21 @@ import { getEnv } from '@/lib/env';
 /**
  * Prisma 7 connects through a driver adapter rather than a URL in the schema.
  *
- * Swapping databases is a two-line change: point `provider` in
- * prisma/schema.prisma at "postgresql" and build a `PrismaPg` adapter here
- * instead — every query in the app is written against the portable model API.
+ * The pool is deliberately small. Serverless platforms run many short-lived
+ * instances, and each one holding a large pool exhausts a managed Postgres'
+ * connection limit long before the app is actually busy — the classic way a
+ * Next.js deployment falls over under mild load. Use a pooled connection
+ * string (pgBouncer, Neon's `-pooler` host, Supabase's port 6543) in
+ * production and this stays comfortable.
  */
 function createPrismaClient(): PrismaClient {
   const env = getEnv();
 
-  const adapter = new PrismaBetterSqlite3({
-    url: env.DATABASE_URL,
-    // Keep the connection resilient under Next's concurrent route handlers.
-    timeout: 5_000,
+  const adapter = new PrismaPg({
+    connectionString: env.DATABASE_URL,
+    max: env.DATABASE_POOL_MAX,
+    // Fail fast rather than hanging a request for 30s on an unreachable database.
+    connectionTimeoutMillis: 10_000,
   });
 
   return new PrismaClient({

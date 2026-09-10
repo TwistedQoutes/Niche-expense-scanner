@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { getCurrentUser } from '@/lib/auth/current-user';
 import { CATEGORY_LIST } from '@/lib/categories/taxonomy';
+import { describePrice } from '@/lib/billing/price';
+import { getEnv } from '@/lib/env';
 import { storageEnabled } from '@/lib/storage';
 
 export default async function LandingPage() {
@@ -12,6 +14,8 @@ export default async function LandingPage() {
 
   // The privacy claim is only as strong as what this deployment actually does.
   const canStoreImages = storageEnabled();
+  const priceLabel = describePrice();
+  const trialDays = getEnv().TRIAL_DAYS;
 
   const showcased = CATEGORY_LIST.filter((category) => category.id !== 'OTHER').slice(0, 9);
 
@@ -32,7 +36,7 @@ export default async function LandingPage() {
         <div className="mt-8 flex flex-col gap-3">
           <Link href="/signup" className="block">
             <Button size="lg" fullWidth>
-              Create a free account
+              {trialDays > 0 ? `Start your ${trialDays}-day free trial` : 'Create an account'}
             </Button>
           </Link>
           <Link href="/login" className="block">
@@ -84,8 +88,20 @@ export default async function LandingPage() {
         </section>
       </div>
 
-      <footer className="mt-12 text-xs text-zinc-400 dark:text-zinc-600">
-        Category guidance is general information, not tax advice.
+      <footer className="mt-12 space-y-3 text-xs text-zinc-400 dark:text-zinc-600">
+        <p>
+          {trialDays > 0 ? `${trialDays}-day free trial, then ${priceLabel}. ` : `${priceLabel}. `}
+          Cancel any time.
+        </p>
+        <p>Category guidance is general information, not tax advice.</p>
+        <p className="flex gap-4">
+          <Link href="/legal/terms" className="hover:underline">
+            Terms
+          </Link>
+          <Link href="/legal/privacy" className="hover:underline">
+            Privacy
+          </Link>
+        </p>
       </footer>
     </main>
   );

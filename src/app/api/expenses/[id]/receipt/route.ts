@@ -3,6 +3,7 @@ import { withRoute } from '@/lib/api/handler';
 import { RATE_LIMITS, enforceRateLimit } from '@/lib/api/rate-limit';
 import { jsonOk } from '@/lib/api/response';
 import { requireUser } from '@/lib/auth/current-user';
+import { requireWriteAccess } from '@/lib/billing/guard';
 import { prisma } from '@/lib/db';
 import {
   MAX_STORED_IMAGE_BYTES,
@@ -51,6 +52,7 @@ export const POST = withRoute(async (request: Request, context: RouteContext) =>
   const storage = requireStorage();
   const user = await requireUser();
   enforceRateLimit(RATE_LIMITS.write, user.id);
+  requireWriteAccess(user);
 
   if (!user.storeReceiptImages) {
     throw new AppError(

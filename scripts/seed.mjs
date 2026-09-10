@@ -11,7 +11,7 @@
 import process from 'node:process';
 
 import bcrypt from 'bcryptjs';
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 
 if (process.env.NODE_ENV === 'production') {
@@ -46,7 +46,7 @@ const EXPENSES = [
   [70, 'Blackwork Collective', 900, 'STUDIO_RENT', 'Booth rent'],
 ];
 
-const adapter = new PrismaBetterSqlite3({ url: process.env.DATABASE_URL });
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
 /** Receipt dates are calendar days, stored at UTC midnight. */
