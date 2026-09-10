@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Niche Expense Scanner">
+  <rect width="512" height="512" rx="112" fill="#7c3aed"/>
+  <path d="M160 116h192a28 28 0 0 1 28 28v252l-40-24-36 24-36-24-36 24-36-24-40 24V144a28 28 0 0 1 28-28Z"
+        fill="#fff" opacity="0.95"/>
+  <g stroke="#7c3aed" stroke-width="20" stroke-linecap="round">
+    <path d="M196 196h120M196 252h120M196 308h72"/>
+  </g>
+</svg>
