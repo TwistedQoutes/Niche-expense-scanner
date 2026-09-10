@@ -1,0 +1,59 @@
+// Niche Expense Scanner — data model
+//
+// SQLite keeps the prototype zero-config. To move to Postgres for production,
+// change `provider` to "postgresql" and point DATABASE_URL at your instance:
+// the model definitions below are portable as-is.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  studioName   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  expenses Expense[]
+
+  @@map("users")
+}
+
+model Expense {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  merchant String
+  // Money is stored as integer minor units (cents) to avoid float drift.
+  amountCents Int
+  taxCents    Int?
+  currency    String @default("USD")
+
+  // Calendar date the money was spent (receipt date), normalised to UTC midnight.
+  spentAt DateTime
+
+  category           String
+  categoryConfidence Float  @default(0)
+  // "auto" when the classifier chose it, "manual" once the artist overrides it.
+  categorySource     String @default("auto")
+
+  notes    String?
+  // Raw OCR text is retained so an expense can be re-parsed after parser
+  // improvements without asking the user to re-scan the receipt.
+  rawText  String?
+  imageKey String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, spentAt])
+  @@index([userId, category])
+  @@map("expenses")
+}

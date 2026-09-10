@@ -1,0 +1,18 @@
+{
+  "name": "Niche Expense Scanner",
+  "short_name": "Expenses",
+  "description": "Receipt scanning and expense tracking for tattoo artists.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fafafa",
+  "theme_color": "#7c3aed",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

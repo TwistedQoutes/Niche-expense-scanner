@@ -1,0 +1,37 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# next
+.next/
+out/
+build/
+next-env.d.ts
+*.tsbuildinfo
+
+# environment
+.env
+.env.local
+.env*.local
+
+# database (SQLite prototype)
+prisma/*.db
+prisma/*.db-journal
+prisma/*.db-shm
+prisma/*.db-wal
+
+# OCR engine assets — copied out of node_modules at build time
+public/ocr/
+
+# uploads (local disk storage driver)
+storage/
+
+# misc
+.DS_Store
+*.pem
+coverage/
+.vercel
+.idea/
+.vscode/*
+!.vscode/extensions.json
