@@ -31,8 +31,29 @@ function createPrismaClient(): PrismaClient {
  */
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-export const prisma: PrismaClient = globalForPrisma.prisma ?? createPrismaClient();
-
-if (getEnv().NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
+/**
+ * Connecting (and therefore validating env) happens lazily, on first actual
+ * query, rather than at module import time. Next.js imports every route
+ * module while collecting page data at build time — without a real
+ * DATABASE_URL/AUTH_SECRET yet — and an eager connection here would fail
+ * that step even though no query is ever run during a build.
+ */
+function getPrismaClient(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    const client = createPrismaClient();
+    if (getEnv().NODE_ENV !== 'production') {
+      globalForPrisma.prisma = client;
+    }
+    return client;
+  }
+  return globalForPrisma.prisma;
 }
+
+let singleton: PrismaClient | undefined;
+
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop, receiver) {
+    if (!singleton) singleton = getPrismaClient();
+    return Reflect.get(singleton as object, prop, receiver);
+  },
+});

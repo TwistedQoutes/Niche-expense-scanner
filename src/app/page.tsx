@@ -6,6 +6,11 @@ import { getCurrentUser } from '@/lib/auth/current-user';
 import { CATEGORY_LIST } from '@/lib/categories/taxonomy';
 import { storageEnabled } from '@/lib/storage';
 
+// Depends on the signed-in session and on runtime-only env (RECEIPT_STORAGE_DRIVER
+// via storageEnabled), neither of which is available while Next prerenders pages
+// at build time. Same reasoning as the dashboard/settings pages.
+export const dynamic = 'force-dynamic';
+
 export default async function LandingPage() {
   // Signed-in artists have no use for the pitch.
   if (await getCurrentUser()) redirect('/dashboard');
