@@ -3,6 +3,7 @@ import { readJsonBody, withRoute } from '@/lib/api/handler';
 import { RATE_LIMITS, enforceRateLimit } from '@/lib/api/rate-limit';
 import { jsonOk, toFieldErrors } from '@/lib/api/response';
 import { requireUser } from '@/lib/auth/current-user';
+import { requireWriteAccess } from '@/lib/billing/guard';
 import { currentMonthKey, parseDateOnly } from '@/lib/dates';
 import { prisma } from '@/lib/db';
 import { listExpenses, summariseMonth } from '@/lib/expenses/queries';
@@ -43,6 +44,7 @@ export const GET = withRoute(async (request) => {
 export const POST = withRoute(async (request) => {
   const user = await requireUser();
   enforceRateLimit(RATE_LIMITS.write, user.id);
+  requireWriteAccess(user);
 
   const parsed = createExpenseSchema.safeParse(await readJsonBody(request));
   if (!parsed.success) throw validationFailed(toFieldErrors(parsed.error));

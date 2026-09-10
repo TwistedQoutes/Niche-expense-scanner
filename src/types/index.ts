@@ -32,6 +32,12 @@ export type ExpenseDto = {
    * means the receipt was split across categories, and `amountCents` is the sum.
    */
   lines: ExpenseLineDto[];
+  /**
+   * Whether a receipt image is retained. The image itself is fetched from
+   * `/api/expenses/:id/receipt`, never inlined here — it is far too large to
+   * belong in a list payload.
+   */
+  hasImage: boolean;
 };
 
 export type MonthSummary = {
@@ -77,4 +83,13 @@ export type UserDto = {
   id: string;
   email: string;
   studioName: string | null;
+  /** Whether this artist has opted into keeping receipt images. */
+  storeReceiptImages: boolean;
+};
+
+/** What the client needs to know about this deployment's capabilities. */
+export type CapabilitiesDto = {
+  /** False when no storage driver is configured, which hides the option entirely. */
+  receiptStorageAvailable: boolean;
+  maxImageBytes: number;
 };

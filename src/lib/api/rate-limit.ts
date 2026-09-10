@@ -34,6 +34,12 @@ export const RATE_LIMITS = {
   parse: { name: 'parse', limit: 60, windowSeconds: 300 },
   write: { name: 'write', limit: 120, windowSeconds: 300 },
   export: { name: 'export', limit: 20, windowSeconds: 300 },
+  /**
+   * Deliberately tight: every accepted request sends an email, so abuse costs
+   * real money and can get the sending domain blocklisted.
+   */
+  passwordReset: { name: 'password-reset', limit: 5, windowSeconds: 900 },
+  billing: { name: 'billing', limit: 20, windowSeconds: 300 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**

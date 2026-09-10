@@ -8,6 +8,7 @@ import { requireUser } from '@/lib/auth/current-user';
 import { parseDateOnly } from '@/lib/dates';
 import { prisma } from '@/lib/db';
 import { serialiseExpense } from '@/lib/expenses/serialise';
+import { isValidImageKey, resolveStorage } from '@/lib/storage';
 import { updateExpenseSchema } from '@/lib/validation';
 import type { ExpenseDto } from '@/types';
 
@@ -83,8 +84,28 @@ export const DELETE = withRoute(async (_request: Request, context: RouteContext)
 
   const { id } = await context.params;
 
+  // The image key has to be read before the row goes: the database cascade
+  // reaches ExpenseLine but knows nothing about files on disk, so without this
+  // every deleted receipt would leave its image behind forever.
+  const existing = await prisma.expense.findFirst({
+    where: { id, userId: user.id },
+    select: { imageKey: true },
+  });
+
   const result = await prisma.expense.deleteMany({ where: { id, userId: user.id } });
   if (result.count === 0) throw notFound('That expense no longer exists.');
+
+  if (existing?.imageKey && isValidImageKey(existing.imageKey)) {
+    const storage = resolveStorage();
+    // Best effort: the expense is already gone as far as the artist is
+    // concerned, and failing the request would suggest otherwise.
+    await storage?.delete(existing.imageKey).catch((error: unknown) => {
+      console.error('[expense] deleted the row but could not remove its image', {
+        expenseId: id,
+        error,
+      });
+    });
+  }
 
   return jsonOk({ ok: true });
 });

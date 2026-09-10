@@ -32,14 +32,31 @@ jobs:
         # support this range, so a failure on either is a real failure.
         node: ['22', '24']
 
+    # A real Postgres, not a stand-in: the migrations are applied against it
+    # below, so a migration that does not apply cleanly fails here rather than
+    # during a production deploy.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nes_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     env:
       # Placeholders, NOT secrets — and deliberately obvious about it.
       #
       # The app validates its whole environment at boot (src/lib/env.ts), so
-      # both `prisma generate` (via postinstall) and `next build` refuse to run
-      # without these. Neither reaches a real database: the build only needs the
-      # URL to be well-formed, and no test opens a connection.
-      DATABASE_URL: file:./prisma/ci.db
+      # `prisma generate` (via postinstall) and `next build` both refuse to run
+      # without these.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nes_ci
       AUTH_SECRET: ci-placeholder-value-not-a-real-credential
       # Keeps `next build` from reporting anonymous usage data from CI.
       NEXT_TELEMETRY_DISABLED: '1'
@@ -72,6 +89,11 @@ jobs:
         # `npm ci` installs exactly the lockfile and fails if it has drifted
         # from package.json — which is what CI should want.
         run: npm ci
+
+      - name: Apply migrations
+        # Proves every committed migration applies to an empty database in
+        # order — the thing that otherwise only gets tested in production.
+        run: npx prisma migrate deploy
 
       - name: Typecheck
         run: npm run typecheck

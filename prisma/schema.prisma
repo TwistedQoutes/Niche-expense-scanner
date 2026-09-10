@@ -1,15 +1,18 @@
 // Niche Expense Scanner — data model
 //
-// SQLite keeps the prototype zero-config. To move to Postgres for production,
-// change `provider` to "postgresql" and point DATABASE_URL at your instance:
-// the model definitions below are portable as-is.
+// Postgres in every environment, including local development.
+//
+// The prototype used SQLite for zero-setup, but dev/prod parity matters more
+// once real money and real tax records are involved: case sensitivity,
+// transaction behaviour and type coercion all differ, and "it worked locally"
+// is not something you want to discover from a customer.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 model User {
@@ -20,9 +23,80 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  expenses Expense[]
+  /// Bumped whenever every existing session must stop working — a password
+  /// change or an explicit "sign out everywhere". The value is carried in the
+  /// session token and compared on each request, which is what makes a
+  /// self-contained JWT revocable without a session table.
+  sessionVersion Int @default(0)
+
+  emailVerifiedAt DateTime?
+
+  // --- Billing ---------------------------------------------------------------
+  // Mirrored from Stripe rather than owned here: Stripe is the source of truth
+  // for what a customer has paid, and these columns exist so a page render does
+  // not need a network call to find out.
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  /// Stripe's own vocabulary: trialing, active, past_due, canceled, unpaid…
+  subscriptionStatus   String?
+  currentPeriodEnd     DateTime?
+  /// Free access until this moment, set at signup. Independent of Stripe, so a
+  /// trial works before the artist has entered a card.
+  trialEndsAt          DateTime?
+
+  /// Opt-in receipt image retention, off by default.
+  ///
+  /// Keeping images is genuinely useful — the IRS wants documentary evidence
+  /// for expenses over $75 — but it also means we become the custodian of
+  /// photographs that can carry a client's name. So it is the artist's choice
+  /// per account, not a deployment-wide decision, and the UI only claims
+  /// images stay on the device when that is actually true for them.
+  storeReceiptImages Boolean @default(false)
+
+  expenses   Expense[]
+  authTokens AuthToken[]
 
   @@map("users")
+}
+
+/// Every Stripe webhook we have already handled.
+///
+/// Stripe retries deliveries, and can deliver the same event more than once
+/// even without a failure. Recording the event id and refusing to process a
+/// repeat is what stops one payment being credited twice.
+model WebhookEvent {
+  /// Stripe's event id, which is the natural idempotency key.
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now())
+
+  @@index([processedAt])
+  @@map("webhook_events")
+}
+
+/// Single-use, short-lived token for password reset and email verification.
+///
+/// Only a SHA-256 hash of the token is stored. A leaked database therefore does
+/// not hand over the ability to reset anyone's password — the same reason the
+/// password itself is hashed.
+model AuthToken {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 of the token that was emailed. Unique, so a token cannot be shared.
+  tokenHash String @unique
+  /// "password_reset" or "email_verify".
+  purpose   String
+
+  expiresAt DateTime
+  /// Set the moment it is redeemed, which is what makes it single-use.
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, purpose])
+  @@index([expiresAt])
+  @@map("auth_tokens")
 }
 
 model Expense {
@@ -54,7 +128,12 @@ model Expense {
   // Raw OCR text is retained so an expense can be re-parsed after parser
   // improvements without asking the user to re-scan the receipt.
   rawText  String?
-  imageKey String?
+
+  /// Storage key for the retained receipt image, or null when none is kept.
+  /// Generated server-side — never derived from anything a client sends.
+  imageKey      String?
+  imageMimeType String?
+  imageBytes    Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

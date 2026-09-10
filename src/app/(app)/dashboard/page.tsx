@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 
+import { TrialBanner } from '@/components/billing/TrialBanner';
 import { DashboardClient } from '@/components/dashboard/DashboardClient';
+import { evaluateAccess } from '@/lib/billing/access';
 import { requireUser } from '@/lib/auth/current-user';
 import { currentMonthKey, isMonthKey } from '@/lib/dates';
 import { listExpenses, monthsWithExpenses, summariseMonth } from '@/lib/expenses/queries';
@@ -28,10 +30,13 @@ export default async function DashboardPage({
   ]);
 
   return (
-    <DashboardClient
-      initialData={{ expenses, summary, nextCursor }}
-      initialMonth={month}
-      availableMonths={availableMonths}
-    />
+    <div className="space-y-4">
+      <TrialBanner access={evaluateAccess(user)} />
+      <DashboardClient
+        initialData={{ expenses, summary, nextCursor }}
+        initialMonth={month}
+        availableMonths={availableMonths}
+      />
+    </div>
   );
 }

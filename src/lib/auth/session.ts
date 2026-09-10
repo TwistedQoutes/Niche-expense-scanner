@@ -11,6 +11,15 @@ const AUDIENCE = 'niche-expense-scanner:app';
 export type SessionPayload = {
   userId: string;
   email: string;
+  /**
+   * The user's `sessionVersion` at the time this token was issued.
+   *
+   * A JWT is self-contained, which normally means it cannot be revoked before
+   * it expires — so a password change would leave a stolen session valid for up
+   * to a week. Carrying the version here and comparing it against the database
+   * on each request makes revocation possible without a session table.
+   */
+  sessionVersion: number;
 };
 
 function secretKey(): Uint8Array {
@@ -20,7 +29,7 @@ function secretKey(): Uint8Array {
 export async function createSessionToken(payload: SessionPayload): Promise<string> {
   const { SESSION_MAX_AGE } = getEnv();
 
-  return new SignJWT({ email: payload.email })
+  return new SignJWT({ email: payload.email, sv: payload.sessionVersion })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setSubject(payload.userId)
     .setIssuer(ISSUER)
@@ -43,7 +52,12 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
       return null;
     }
 
-    return { userId: payload.sub, email: payload.email };
+    // Tokens issued before session versioning existed have no `sv`; treating a
+    // missing value as 0 keeps them valid until they expire naturally rather
+    // than signing everyone out on deploy.
+    const sessionVersion = typeof payload.sv === 'number' ? payload.sv : 0;
+
+    return { userId: payload.sub, email: payload.email, sessionVersion };
   } catch {
     // Expired, tampered with, or signed by a rotated secret — all the same to us.
     return null;

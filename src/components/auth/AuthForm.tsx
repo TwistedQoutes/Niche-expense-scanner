@@ -143,6 +143,17 @@ export function AuthForm({ mode, nextPath }: { mode: Mode; nextPath?: string }) 
         <Button type="submit" size="lg" fullWidth loading={submitting}>
           {submitting ? 'Just a moment…' : copy.submit}
         </Button>
+
+        {mode === 'login' ? (
+          <p className="text-center">
+            <Link
+              href="/forgot-password"
+              className="text-sm font-medium text-zinc-600 hover:underline dark:text-zinc-400"
+            >
+              Forgot your password?
+            </Link>
+          </p>
+        ) : null}
       </form>
 
       <p className="mt-6 text-center text-sm text-zinc-600 dark:text-zinc-400">
