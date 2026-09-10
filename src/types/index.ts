@@ -7,6 +7,16 @@ import type { CategoryId } from '@/lib/categories/taxonomy';
  * JSON, and the client never needs `userId`. Serialising through one function
  * (`serialiseExpense`) keeps the two from drifting.
  */
+export type ExpenseLineDto = {
+  id: string;
+  label: string | null;
+  amountCents: number;
+  category: CategoryId;
+  categoryConfidence: number;
+  categorySource: 'auto' | 'manual';
+  position: number;
+};
+
 export type ExpenseDto = {
   id: string;
   merchant: string;
@@ -15,11 +25,13 @@ export type ExpenseDto = {
   currency: string;
   /** `YYYY-MM-DD`. */
   spentAt: string;
-  category: CategoryId;
-  categoryConfidence: number;
-  categorySource: 'auto' | 'manual';
   notes: string | null;
   createdAt: string;
+  /**
+   * Always at least one. A single line means an unsplit receipt; more than one
+   * means the receipt was split across categories, and `amountCents` is the sum.
+   */
+  lines: ExpenseLineDto[];
 };
 
 export type MonthSummary = {
@@ -49,6 +61,14 @@ export type ParseReceiptResponse = {
     matchedTerms: string[];
     alternatives: { category: CategoryId; confidence: number }[];
   };
+  /**
+   * A proposed split, when the receipt itemises products across two or more
+   * categories. Null when there is nothing worth suggesting — see
+   * `suggestSplit` for why the bar is deliberately high.
+   */
+  suggestedLines:
+    | { label: string; amountCents: number; category: CategoryId; categoryConfidence: number }[]
+    | null;
   /** True when at least one field needs the artist's eyes before saving. */
   needsReview: boolean;
 };

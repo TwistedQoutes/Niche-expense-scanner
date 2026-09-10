@@ -68,27 +68,79 @@ async function main() {
 
   await prisma.expense.deleteMany({ where: { userId: user.id } });
 
-  await prisma.expense.createMany({
-    data: EXPENSES.map(([days, merchant, dollars, category, notes], index) => ({
-      userId: user.id,
-      merchant,
-      amountCents: Math.round(dollars * 100),
-      // Roughly 8% sales tax on physical goods; services and rent have none.
-      taxCents: ['STUDIO_RENT', 'SOFTWARE_FEES', 'LICENCES_INSURANCE', 'UTILITIES'].includes(category)
-        ? null
-        : Math.round(dollars * 100 * 0.08),
-      currency: 'USD',
-      spentAt: daysAgoUtc(days),
+  // Cascades from the expense, so the lines go with them.
+  for (const [index, [days, merchant, dollars, category, notes]] of EXPENSES.entries()) {
+    const amountCents = Math.round(dollars * 100);
+    const untaxed = ['STUDIO_RENT', 'SOFTWARE_FEES', 'LICENCES_INSURANCE', 'UTILITIES'].includes(
       category,
-      // Alternate the source so the dashboard shows both states.
-      categoryConfidence: index % 3 === 0 ? 1 : 0.82,
-      categorySource: index % 3 === 0 ? 'manual' : 'auto',
-      notes,
-    })),
+    );
+
+    await prisma.expense.create({
+      data: {
+        userId: user.id,
+        merchant,
+        amountCents,
+        // Roughly 8% sales tax on physical goods; services and rent have none.
+        taxCents: untaxed ? null : Math.round(amountCents * 0.08),
+        currency: 'USD',
+        spentAt: daysAgoUtc(days),
+        notes,
+        lines: {
+          create: [
+            {
+              label: null,
+              amountCents,
+              category,
+              // Alternate the source so the dashboard shows both states.
+              categoryConfidence: index % 3 === 0 ? 1 : 0.82,
+              categorySource: index % 3 === 0 ? 'manual' : 'auto',
+              position: 0,
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  // One genuinely split receipt, so the dashboard and export demonstrate the
+  // case a single-category tracker cannot represent: one supplier order that
+  // belongs to three different categories.
+  const splitTotal = 14305;
+  const splitParts = [
+    ['Cartridge Needles 3RL', 7731, 'NEEDLES'],
+    ['Nitrile Gloves Box M', 3864, 'GLOVES_PPE'],
+    ['Dynamic Black Ink 8oz', 2710, 'INK'],
+  ];
+
+  if (splitParts.reduce((sum, [, cents]) => sum + cents, 0) !== splitTotal) {
+    throw new Error('[seed] the split example does not add up to its total');
+  }
+
+  await prisma.expense.create({
+    data: {
+      userId: user.id,
+      merchant: 'Kingpin Tattoo Supply',
+      amountCents: splitTotal,
+      taxCents: 1060,
+      currency: 'USD',
+      spentAt: daysAgoUtc(4),
+      notes: 'Mixed supply order — split across three categories',
+      lines: {
+        create: splitParts.map(([label, cents, category], position) => ({
+          label,
+          amountCents: cents,
+          category,
+          categoryConfidence: 0.86,
+          categorySource: 'auto',
+          position,
+        })),
+      },
+    },
   });
 
   const count = await prisma.expense.count({ where: { userId: user.id } });
-  console.log(`[seed] ${count} expenses for ${DEMO_EMAIL}`);
+  const lineCount = await prisma.expenseLine.count({ where: { expense: { userId: user.id } } });
+  console.log(`[seed] ${count} expenses (${lineCount} category lines) for ${DEMO_EMAIL}`);
   console.log(`[seed] password: ${DEMO_PASSWORD}`);
 }
 

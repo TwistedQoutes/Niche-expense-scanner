@@ -7,20 +7,32 @@ import { UTF8_BOM, csvFilename, toCsv } from '@/lib/csv';
 import { formatMonthLabel, isMonthKey } from '@/lib/dates';
 import { prisma } from '@/lib/db';
 import { expenseWhere } from '@/lib/expenses/queries';
+import { serialiseExpense } from '@/lib/expenses/serialise';
 import { centsToDecimalString } from '@/lib/money';
 import { monthQuerySchema } from '@/lib/validation';
 
 export const runtime = 'nodejs';
 
+/**
+ * One row per category share, not per receipt.
+ *
+ * A split receipt belongs on two or three Schedule C lines, so emitting it as a
+ * single row would force whoever files the return to unpick it by hand — which
+ * is the work this feature exists to remove. `Part of receipt` names the parent
+ * so the rows can still be traced back to one document.
+ */
 const HEADERS = [
   'Date',
   'Merchant',
+  'Description',
   'Category',
   'Amount',
-  'Tax',
   'Currency',
   'Schedule C line',
   'Categorised by',
+  'Part of receipt',
+  'Receipt total',
+  'Tax',
   'Notes',
 ] as const;
 
@@ -48,38 +60,68 @@ export const GET = withRoute(async (request) => {
 
   const expenses = await prisma.expense.findMany({
     where: expenseWhere(user.id, month && isMonthKey(month) ? { month } : {}),
+    include: { lines: { orderBy: { position: 'asc' } } },
     orderBy: [{ spentAt: 'asc' }, { createdAt: 'asc' }],
     take: MAX_ROWS,
   });
 
-  const rows = expenses.map((expense) => {
-    const category = categoryOf(expense.category);
-    return [
-      expense.spentAt.toISOString().slice(0, 10),
-      expense.merchant,
-      category.label,
-      centsToDecimalString(expense.amountCents),
-      expense.taxCents === null ? '' : centsToDecimalString(expense.taxCents),
-      expense.currency,
-      category.scheduleC,
-      expense.categorySource === 'manual' ? 'Artist' : 'Scanner',
-      expense.notes ?? '',
-    ];
+  const rows = expenses.flatMap((expense) => {
+    const serialised = serialiseExpense(expense);
+    const split = serialised.lines.length > 1;
+
+    return serialised.lines.map((line, index) => {
+      const category = categoryOf(line.category);
+      return [
+        serialised.spentAt,
+        expense.merchant,
+        line.label ?? '',
+        category.label,
+        centsToDecimalString(line.amountCents),
+        expense.currency,
+        category.scheduleC,
+        line.categorySource === 'manual' ? 'Artist' : 'Scanner',
+        split ? `${index + 1} of ${serialised.lines.length}` : '',
+        // Repeating the receipt total on every row of a split would double-count
+        // it in a naive sum, so it is stated once, against the first part.
+        index === 0 ? centsToDecimalString(expense.amountCents) : '',
+        index === 0 && expense.taxCents !== null ? centsToDecimalString(expense.taxCents) : '',
+        index === 0 ? (expense.notes ?? '') : '',
+      ];
+    });
   });
 
   const totalCents = expenses.reduce((sum, expense) => sum + expense.amountCents, 0);
   const taxTotalCents = expenses.reduce((sum, expense) => sum + (expense.taxCents ?? 0), 0);
 
   // A totals row: the first thing anyone does with this file is check the sum.
+  // Because the sum invariant holds, totalling the per-line Amount column gives
+  // the same figure as totalling the receipts — so the file reconciles whether
+  // it is read by row or by receipt.
   const body = toCsv(HEADERS, [
     ...rows,
     [],
-    ['', 'TOTAL', '', centsToDecimalString(totalCents), centsToDecimalString(taxTotalCents), '', '', '', ''],
     [
       '',
-      `${expenses.length} expense${expenses.length === 1 ? '' : 's'}${
-        month ? ` — ${formatMonthLabel(month)}` : ' — all time'
-      }`,
+      'TOTAL',
+      '',
+      '',
+      centsToDecimalString(totalCents),
+      '',
+      '',
+      '',
+      '',
+      centsToDecimalString(totalCents),
+      centsToDecimalString(taxTotalCents),
+      '',
+    ],
+    [
+      '',
+      `${expenses.length} receipt${expenses.length === 1 ? '' : 's'} in ${rows.length} ${
+        rows.length === 1 ? 'part' : 'parts'
+      }${month ? ` — ${formatMonthLabel(month)}` : ' — all time'}`,
+      '',
+      '',
+      '',
       '',
       '',
       '',

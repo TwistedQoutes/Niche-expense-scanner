@@ -36,6 +36,7 @@ makes automatic categorisation possible at all.
 | Email/password auth, JWT session in an http-only cookie | `src/lib/auth/`, `src/app/api/auth/` |
 | Receipt upload + on-device OCR + field extraction | `src/lib/ocr/`, `src/components/scan/` |
 | Tattoo-specific auto-categorisation | `src/lib/categories/` |
+| Splitting one receipt across categories, suggested automatically | `src/lib/expenses/split.ts`, `src/components/scan/SplitEditor.tsx` |
 | Mobile-first dashboard, month filter, CSV export | `src/components/dashboard/`, `src/app/api/expenses/export/` |
 
 ---
@@ -49,6 +50,7 @@ niche-expense-scanner/
 ├── prisma.config.ts               # Prisma 7 config: schema path + datasource URL
 ├── scripts/
 │   ├── setup-ocr-assets.mjs       # Stages the OCR engine into public/ocr (git-ignored)
+│   ├── backfill-expense-lines.mjs # Idempotent migration for pre-split rows
 │   └── seed.mjs                   # Demo account with a few months of expenses
 ├── public/
 │   ├── icon.svg                   # App icon
@@ -85,7 +87,8 @@ niche-expense-scanner/
 │   │   ├── layout/{TopBar,BottomNav}.tsx
 │   │   ├── scan/
 │   │   │   ├── ReceiptScanner.tsx # Upload → OCR → parse → review state machine
-│   │   │   └── ExpenseForm.tsx    # Review-and-save, with per-field confidence
+│   │   │   ├── ExpenseForm.tsx    # Review-and-save, with per-field confidence
+│   │   │   └── SplitEditor.tsx    # Split across categories, with a live balance
 │   │   └── dashboard/
 │   │       ├── DashboardClient.tsx    # Month state, optimistic updates
 │   │       ├── SummaryCards.tsx
@@ -99,7 +102,7 @@ niche-expense-scanner/
 │   │   ├── cn.ts                  # Tailwind-aware class merge
 │   │   ├── api-client.ts          # Typed fetch wrapper → ApiError
 │   │   ├── validation.ts          # Every request schema, shared with the forms
-│   │   ├── money.ts               # Integer-cent arithmetic and parsing
+│   │   ├── money.ts               # Integer-cent arithmetic, parsing, apportionment
 │   │   ├── dates.ts               # UTC calendar-day handling, month keys
 │   │   ├── csv.ts                 # Quoting + formula-injection defence
 │   │   ├── api/
@@ -120,6 +123,7 @@ niche-expense-scanner/
 │   │   │   └── parse-receipt.ts   # Text → merchant/total/tax/date + confidence
 │   │   └── expenses/
 │   │       ├── queries.ts         # Listing, month summary, tenant scoping
+│   │       ├── split.ts           # Groups line items into a proposed split
 │   │       └── serialise.ts       # Row → DTO
 │   └── types/index.ts             # Wire types shared by client and server
 └── tests/                         # Vitest: parser, classifier, money, dates, CSV
@@ -170,6 +174,7 @@ Seeded demo login: `demo@studio.test` / `tattoo-demo-2026`.
 | `npm run lint` | ESLint |
 | `npm test` | Vitest |
 | `npm run db:push` / `db:migrate` / `db:studio` | Prisma schema and data tools |
+| `npm run db:backfill` | One-off: gives pre-split rows their category line |
 | `npm run setup:ocr` | Re-stage `public/ocr` |
 
 ---
@@ -262,6 +267,36 @@ Software & Payment Fees · Travel & Conventions · Utilities & Phone · Uncatego
 Picking a category by hand sets `categorySource: 'manual'`, so the app stops second-guessing
 it and the dashboard can distinguish a guess (✨) from a decision.
 
+### 3b. Splitting one receipt across categories
+
+A single supplier order routinely contains needles, ink and gloves — three different Schedule
+C entries on one piece of paper. Forcing it into one category either loses that detail or files
+the whole amount under the wrong line, so a receipt is stored as an **`Expense` plus one or
+more `ExpenseLine` rows**, one per category. An unsplit receipt has exactly one line, so the
+rest of the app has a single shape to read rather than two that can disagree.
+
+**The invariant that makes it trustworthy:** the lines always sum to `Expense.amountCents`, to
+the cent. It is enforced in `src/lib/validation.ts` on create and update, checked in the form
+before the round trip, verified by the backfill script, and re-checked in tests. Without it the
+month total and the category breakdown drift apart and the CSV stops reconciling — the kind of
+wrongness nobody notices until an accountant does.
+
+**The split is suggested, not demanded.** `suggestSplit` reads the receipt's own itemisation
+(`extractLineItems`), classifies each product line independently, and groups by category — so a
+four-needle, one-ink order is a two-way split, not a five-way one. Two details matter:
+
+- The **full total** is apportioned across the groups pro-rata to their item amounts, using the
+  largest-remainder method (`apportionCents`). Tax and shipping therefore spread across
+  categories in proportion to what caused them, and the parts sum to the total exactly —
+  naive division would give three shares of $10.00 as 333+333+333 and lose a penny.
+- It **declines to guess**. No suggestion is offered unless there are two or more distinct
+  categories, at least one confidently identified, and a known total. A wrong split is more
+  annoying to unpick than no split.
+
+The artist accepts it in one tap, edits it, or ignores it. The editor shows what is left to
+account for live, and offers to drop the remainder onto a line in one tap, so an unbalanced
+split is fixed before saving rather than rejected after.
+
 ### 4. Dashboard and CSV export
 
 The first month renders on the server; month switching, re-categorising and deleting happen
@@ -272,8 +307,16 @@ Layout is mobile-first in a specific way: below `sm` each expense is a stacked r
 `sm` up the same data becomes a real table with column headers. A `<table>` at 360px means
 horizontal scrolling, which is where expense trackers become unusable on a phone.
 
-Export sends `?month=YYYY-MM` for one month or nothing for all time, and includes a totals
-row plus the Schedule C mapping. Two details that matter:
+A split receipt shows its categories as chips on one row and stays **one** receipt in the
+count — the "Receipts" and "Average" stats describe receipts, while the breakdown describes
+categories. Both are aggregated in the database (totals from the expense rows, the breakdown
+from the lines), and the sum invariant guarantees they agree.
+
+Export sends `?month=YYYY-MM` for one month or nothing for all time, and emits **one row per
+category share** so a split receipt lands on the two or three Schedule C lines it belongs to
+rather than needing to be unpicked by hand. `Part of receipt` ("2 of 3") keeps the rows
+traceable to one document, and the receipt total is stated once per receipt so a naive sum of
+that column does not double-count. Three details that matter:
 
 - **Formula-injection defence.** A cell starting with `=`, `+`, `-` or `@` is executed as a
   formula by Excel, Sheets and Numbers. Merchant names and notes come from OCR of an
@@ -323,7 +366,7 @@ failures, unreadable images and expired sessions all have their own user-facing 
 npm test
 ```
 
-71 tests over the logic where a bug is expensive and silent:
+119 tests over the logic where a bug is expensive and silent:
 
 - **`parse-receipt`** — subtotal vs total, cash tendered, "total items", ambiguous and
   textual dates, future-date rejection, non-USD currency, incoherent tax, merchant selection,
@@ -331,14 +374,21 @@ npm test
 - **`classify`** — one case per category, word-boundary safety, supplier-prior precedence,
   confidence ordering, and the guarantee that an alternative is never reported as more likely
   than the winner.
-- **`money`** — integer-cent arithmetic, US and European separators, float-drift cases, and
-  the ambiguous inputs that are deliberately rejected.
+- **`money`** — integer-cent arithmetic, US and European separators, float-drift cases, the
+  ambiguous inputs that are deliberately rejected, and an apportionment sweep asserting that a
+  split balances across a range of awkward totals and weightings.
+- **`split`** — line-item extraction against real OCR output, category grouping, pro-rata tax
+  spreading, and every case where a split is deliberately *not* suggested.
+- **`validation`** — the sum invariant from both directions, including a one-cent discrepancy,
+  and a regression test for the partial-update currency bug described below.
 - **`dates`** — UTC calendar-day handling, half-open month ranges, year rollover, rejection
   of dates like `2026-02-31` that `new Date` would silently roll over.
 - **`csv`** — quoting and formula-injection neutralisation.
 
 The full scan flow was also driven end-to-end in a real Chromium — sign-up, image upload,
-in-browser OCR, review, save, dashboard, CSV download — against a rendered receipt image.
+in-browser OCR, review, save, dashboard, CSV download — against a rendered receipt image,
+including the split path: accepting a suggested three-way split, having an unbalanced edit
+refused, repairing it in one tap, and confirming the exported CSV reconciles to the receipt.
 
 ### Continuous integration
 
@@ -363,17 +413,21 @@ under Settings → Branches.
 1. **Postgres.** Set `provider = "postgresql"` in `prisma/schema.prisma`, swap
    `PrismaBetterSqlite3` for `PrismaPg` in `src/lib/db.ts`, then `npm run db:migrate`.
    Add `mode: 'insensitive'` to the search filter in `expenses/queries.ts`.
-2. **Shared rate limiting.** The limiter is per-process. Behind more than one instance,
+2. **Drop the deprecated category columns.** `Expense.category`, `categoryConfidence` and
+   `categorySource` are superseded by `ExpenseLine` and kept only so `npm run db:backfill` can
+   read them. Once every deployment has run the backfill, remove them from the schema and the
+   fallback branch in `serialiseExpense`.
+3. **Shared rate limiting.** The limiter is per-process. Behind more than one instance,
    back `enforceRateLimit` with Redis — the call sites do not change.
-3. **Tighten the CSP.** `script-src` currently allows `'unsafe-inline'` for Next's runtime;
+4. **Tighten the CSP.** `script-src` currently allows `'unsafe-inline'` for Next's runtime;
    move to a per-request nonce.
-4. **Session revocation.** JWTs are self-contained, so sign-out is client-side only. For
+5. **Session revocation.** JWTs are self-contained, so sign-out is client-side only. For
    "sign out everywhere", add a `sessionVersion` column and check it in `requireUser()`.
-5. **Password reset and email verification.** Neither exists yet; both need an email provider.
-6. **Receipt image storage.** `RECEIPT_STORAGE_DRIVER` is scaffolded but images are currently
+6. **Password reset and email verification.** Neither exists yet; both need an email provider.
+7. **Receipt image storage.** `RECEIPT_STORAGE_DRIVER` is scaffolded but images are currently
    never persisted. If an audit trail requires them, add object storage with per-user prefixes
    and signed URLs — and revisit the privacy claim in the UI copy.
-7. **Observability.** Incident ids are logged but not shipped anywhere; wire up error tracking
+8. **Observability.** Incident ids are logged but not shipped anywhere; wire up error tracking
    and alert on the `/api/health` probe.
 
 ---
@@ -382,8 +436,9 @@ under Settings → Branches.
 
 - **English only.** One Tesseract language model is bundled; other languages need another
   model and category keywords to match.
-- **One category per receipt.** A mixed supply order is filed under its dominant category
-  and flagged for review. Splitting a receipt across categories is the obvious next feature.
+- **A split needs the receipt to itemise.** The automatic suggestion reads the product lines
+  off the receipt, so a till slip printing only a total cannot be split automatically — it can
+  still be split by hand.
 - **First scan downloads ~15 MB** of engine and model, cached by the browser afterwards.
 - **HEIC** photos depend on browser support; the error message tells the artist to share as
   JPEG when decoding fails.

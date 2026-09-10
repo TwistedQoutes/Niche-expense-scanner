@@ -4,6 +4,7 @@ import { RATE_LIMITS, enforceRateLimit } from '@/lib/api/rate-limit';
 import { jsonOk, toFieldErrors } from '@/lib/api/response';
 import { requireUser } from '@/lib/auth/current-user';
 import { MIN_CONFIDENCE, classifyExpense } from '@/lib/categories/classify';
+import { suggestSplit } from '@/lib/expenses/split';
 import { parseReceiptText } from '@/lib/ocr/parse-receipt';
 import { parseReceiptSchema } from '@/lib/validation';
 import type { ParseReceiptResponse } from '@/types';
@@ -32,6 +33,7 @@ export const POST = withRoute(async (request) => {
 
   const fields = parseReceiptText(rawText);
   const category = classifyExpense({ merchant: fields.merchant.value, rawText });
+  const suggestedLines = suggestSplit(rawText, fields.amountCents.value);
 
   const needsReview =
     fields.amountCents.value === null ||
@@ -53,6 +55,7 @@ export const POST = withRoute(async (request) => {
       matchedTerms: category.matchedTerms,
       alternatives: category.alternatives,
     },
+    suggestedLines,
     needsReview,
   });
 });

@@ -28,7 +28,9 @@ export function expenseWhere(userId: string, filters: ExpenseFilters): Prisma.Ex
   }
 
   if (filters.category) {
-    where.category = filters.category;
+    // Matches a receipt if *any* of its parts is in this category — a split
+    // order of needles and ink belongs in both filters, not neither.
+    where.lines = { some: { category: filters.category } };
   }
 
   if (filters.search) {
@@ -49,6 +51,7 @@ export async function listExpenses(
   // second count query.
   const rows = await prisma.expense.findMany({
     where: expenseWhere(userId, filters),
+    include: { lines: { orderBy: { position: 'asc' } } },
     orderBy: [{ spentAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
     take: pagination.limit + 1,
     ...(pagination.cursor ? { cursor: { id: pagination.cursor }, skip: 1 } : {}),
@@ -70,11 +73,14 @@ export async function listExpenses(
 export async function summariseMonth(userId: string, month: MonthKey): Promise<MonthSummary> {
   const where = expenseWhere(userId, { month });
 
+  // Totals come from the expense rows (so "receipts" counts receipts, not
+  // parts), while the category breakdown comes from the lines. Both are
+  // aggregated in the database, and the sum invariant guarantees they agree.
   const [totals, grouped, currencyRow] = await Promise.all([
     prisma.expense.aggregate({ where, _sum: { amountCents: true, taxCents: true }, _count: true }),
-    prisma.expense.groupBy({
+    prisma.expenseLine.groupBy({
       by: ['category'],
-      where,
+      where: { expense: where },
       _sum: { amountCents: true },
       _count: true,
     }),

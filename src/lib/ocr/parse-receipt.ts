@@ -427,6 +427,66 @@ export function tidyMerchantName(raw: string): string {
     .join(' ');
 }
 
+/** One product line off a receipt: what it was, and what it cost. */
+export type ReceiptLineItem = {
+  label: string;
+  amountCents: number;
+};
+
+/**
+ * Lines that carry an amount but are not products.
+ *
+ * Getting this list wrong is what turns a tidy three-way split into a
+ * six-way one containing "SUBTOTAL", "VISA" and "CHANGE DUE".
+ */
+const LINE_ITEM_EXCLUSIONS =
+  /\b(?:sub[\s-]*total|total|tax|vat|gst|hst|change|cash|tender(?:ed)?|balance|due|payment|paid|visa|mastercard|maestro|amex|debit|credit|card|contactless|approved|auth|invoice|receipt|order\s*#|date|tel|phone|fax|thank|discount|savings|loyalty|points|qty|quantity)\b/i;
+
+/** Trailing amount, leading quantity and OCR artefacts stripped off a product line. */
+function tidyItemLabel(line: string): string {
+  return line
+    // The amount we just read off the end.
+    .replace(/(?:[$£€]\s*)?\d{1,3}(?:,\d{3})*\.\d{2}\s*$/, '')
+    // A leading quantity: "2 ", "3 x ", "1 @ ".
+    .replace(/^\s*\d{1,3}\s*(?:x|@)?\s+/i, '')
+    .replace(/[*|_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[,.]$/, '');
+}
+
+/**
+ * Pulls the product lines out of a receipt.
+ *
+ * This is what makes splitting automatic rather than manual: a supplier invoice
+ * already lists needles, ink and gloves as separate lines with their own
+ * amounts, so the split is sitting there in the text — it just has to be read
+ * and classified line by line.
+ *
+ * Conservative by design. A line has to have both a real description (three or
+ * more letters) and a trailing decimal amount to count, so quantities, card
+ * digits and layout noise are skipped rather than becoming phantom line items.
+ */
+export function extractLineItems(rawText: string): ReceiptLineItem[] {
+  const items: ReceiptLineItem[] = [];
+
+  for (const line of toLines(rawText)) {
+    if (LINE_ITEM_EXCLUSIONS.test(line)) continue;
+
+    const amounts = extractAmounts(line);
+    const amount = amounts[amounts.length - 1];
+    if (!amount || amount.cents <= 0) continue;
+
+    const label = tidyItemLabel(line);
+    // A description that is mostly digits is a reference number, not a product.
+    if (label.replace(/[^a-z]/gi, '').length < 3) continue;
+
+    items.push({ label, amountCents: amount.cents });
+  }
+
+  return items;
+}
+
 export function parseReceiptText(rawText: string, now: Date = new Date()): ParsedReceipt {
   const lines = toLines(rawText);
   const currency = detectCurrency(rawText);

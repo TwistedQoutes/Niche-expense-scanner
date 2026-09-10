@@ -94,3 +94,62 @@ export function centsToDecimalString(cents: number): string {
   const absolute = Math.abs(cents);
   return `${sign}${Math.floor(absolute / 100)}.${String(absolute % 100).padStart(2, '0')}`;
 }
+
+/**
+ * Splits `totalCents` into parts proportional to `weights`, summing to exactly
+ * `totalCents`.
+ *
+ * Naive proportional division loses money: three equal shares of $10.00 give
+ * 333 + 333 + 333 = $9.99, and a receipt whose parts do not add up to its total
+ * is worse than no split at all. This uses the largest-remainder method —
+ * everyone gets their floor, then the leftover cents go one each to whoever was
+ * rounded down hardest — which is the standard apportionment rule and the same
+ * one accountants use to spread tax across line items.
+ *
+ * Returns integer cents in the same order as `weights`.
+ */
+export function apportionCents(totalCents: number, weights: readonly number[]): number[] {
+  if (weights.length === 0) return [];
+  if (!Number.isInteger(totalCents)) {
+    throw new Error('apportionCents requires an integer amount in cents.');
+  }
+
+  const safeWeights = weights.map((weight) => (Number.isFinite(weight) && weight > 0 ? weight : 0));
+  const weightSum = safeWeights.reduce((sum, weight) => sum + weight, 0);
+
+  // No usable weights (all zero, or a single zero-value item): divide evenly so
+  // the total is still preserved rather than silently dropped.
+  if (weightSum <= 0) {
+    const base = Math.floor(totalCents / weights.length);
+    const parts = new Array<number>(weights.length).fill(base);
+    let leftover = totalCents - base * weights.length;
+    for (let index = 0; leftover > 0; index += 1, leftover -= 1) {
+      parts[index % parts.length] = (parts[index % parts.length] ?? 0) + 1;
+    }
+    return parts;
+  }
+
+  const exact = safeWeights.map((weight) => (totalCents * weight) / weightSum);
+  const parts = exact.map((value) => Math.floor(value));
+  const distributed = parts.reduce((sum, part) => sum + part, 0);
+
+  // Hand out the remaining cents to the largest fractional remainders first.
+  // Ties break by index so the result is deterministic and testable.
+  const order = exact
+    .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
+    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+
+  let remaining = totalCents - distributed;
+  for (let step = 0; remaining > 0 && step < order.length; step += 1) {
+    const target = order[step]!.index;
+    parts[target] = (parts[target] ?? 0) + 1;
+    remaining -= 1;
+  }
+
+  return parts;
+}
+
+/** True when the parts of a split add up to the receipt total exactly. */
+export function splitBalances(totalCents: number, partCents: readonly number[]): boolean {
+  return partCents.reduce((sum, part) => sum + part, 0) === totalCents;
+}

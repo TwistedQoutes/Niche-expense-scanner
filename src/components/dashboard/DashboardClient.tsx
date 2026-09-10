@@ -83,23 +83,44 @@ export function DashboardClient({
     void load(nextMonth);
   }
 
-  async function handleRecategorise(id: string, category: CategoryId) {
-    setBusyId(id);
+  async function handleRecategorise(expenseId: string, lineId: string, category: CategoryId) {
+    const expense = data.expenses.find((candidate) => candidate.id === expenseId);
+    if (!expense) return;
+
+    setBusyId(expenseId);
     setError(null);
+
+    // The API replaces the whole split at once, so the unchanged parts are sent
+    // back alongside the edited one. That keeps the sum invariant intact — a
+    // partial update could leave the parts not adding up to the total.
+    const lines = expense.lines.map((line) =>
+      line.id === lineId
+        ? { ...line, category, categorySource: 'manual' as const, categoryConfidence: 1 }
+        : line,
+    );
 
     // Optimistic: the change is instant, and rolled back if the server refuses.
     const previous = data;
     setData((current) => ({
       ...current,
-      expenses: current.expenses.map((expense) =>
-        expense.id === id ? { ...expense, category, categorySource: 'manual', categoryConfidence: 1 } : expense,
+      expenses: current.expenses.map((candidate) =>
+        candidate.id === expenseId ? { ...candidate, lines } : candidate,
       ),
     }));
 
     try {
-      await apiRequest<{ expense: ExpenseDto }>(`/api/expenses/${id}`, {
+      await apiRequest<{ expense: ExpenseDto }>(`/api/expenses/${expenseId}`, {
         method: 'PATCH',
-        body: { category },
+        body: {
+          amountCents: expense.amountCents,
+          lines: lines.map((line) => ({
+            label: line.label,
+            amountCents: line.amountCents,
+            category: line.category,
+            categoryConfidence: line.categoryConfidence,
+            categorySource: line.categorySource,
+          })),
+        },
       });
       // Reload so the summary and breakdown reflect the new category.
       await load(month);

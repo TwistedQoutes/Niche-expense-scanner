@@ -21,6 +21,7 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "node --env-file=.env scripts/seed.mjs",
+    "db:backfill": "node --env-file=.env scripts/backfill-expense-lines.mjs",
     "postinstall": "prisma generate"
   },
   "dependencies": {
