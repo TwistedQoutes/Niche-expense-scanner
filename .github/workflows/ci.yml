@@ -23,20 +23,14 @@ jobs:
     runs-on: ubuntu-latest
 
     strategy:
-      # One leg failing shouldn't cancel the other and hide its result.
+      # One leg failing shouldn't cancel the other and hide its result — when
+      # a change breaks only one Node version, that difference is the finding.
       fail-fast: false
       matrix:
-        include:
-          # The version this project is developed and verified against, and the
-          # floor declared in package.json `engines` (vitest needs >=22.12).
-          - node: '22'
-            required: true
-          # Next LTS. Reported but not gating — a break here is worth knowing
-          # about without failing an otherwise fine pull request.
-          - node: '24'
-            required: false
-
-    continue-on-error: ${{ !matrix.required }}
+        # 22 is the floor declared in package.json `engines` (vitest needs
+        # >=22.12); 24 is the current LTS. Both gate: the project claims to
+        # support this range, so a failure on either is a real failure.
+        node: ['22', '24']
 
     env:
       # Placeholders, NOT secrets — and deliberately obvious about it.

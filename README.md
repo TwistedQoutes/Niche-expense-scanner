@@ -340,6 +340,22 @@ npm test
 The full scan flow was also driven end-to-end in a real Chromium — sign-up, image upload,
 in-browser OCR, review, save, dashboard, CSV download — against a rendered receipt image.
 
+### Continuous integration
+
+`.github/workflows/ci.yml` runs typecheck, lint, tests and a production build on every push
+to `main` and every pull request, across **Node 22 and 24** — the range `engines` claims, so
+the claim is verified rather than trusted. Both versions gate; a failure on either is a real
+failure. A production-dependency `npm audit` runs too, but advisory-only: an advisory
+published upstream overnight should be visible without blocking an unrelated pull request.
+
+Two environment variables are supplied as obvious placeholders, because the app validates its
+environment at boot and both `prisma generate` and `next build` refuse to start without them.
+Neither reaches a real database — the build only needs a well-formed URL, and no test opens a
+connection.
+
+To make the checks block merging rather than merely report, add them as required status checks
+under Settings → Branches.
+
 ---
 
 ## Going to production
