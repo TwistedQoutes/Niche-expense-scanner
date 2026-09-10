@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { CategoryChip } from '@/components/ui/CategoryChip';
 import { ApiError, apiRequest } from '@/lib/api-client';
+import { categoryOf } from '@/lib/categories/taxonomy';
 import { cn } from '@/lib/cn';
 import { formatCents } from '@/lib/money';
 import {
@@ -146,7 +147,9 @@ export function ReceiptScanner() {
       <div className="space-y-4">
         <Alert tone="success" title="Expense saved">
           {formatCents(step.expense.amountCents, step.expense.currency)} at {step.expense.merchant} —{' '}
-          filed under {step.expense.category.toLowerCase().replace(/_/g, ' ')}.
+          {step.expense.lines.length === 1
+            ? `filed under ${categoryOf(step.expense.lines[0]!.category).label.toLowerCase()}.`
+            : `split across ${step.expense.lines.length} categories.`}
         </Alert>
 
         <Card className="p-4">
@@ -155,7 +158,11 @@ export function ReceiptScanner() {
               <p className="truncate font-medium">{step.expense.merchant}</p>
               <p className="text-sm text-zinc-500 dark:text-zinc-400">{step.expense.spentAt}</p>
             </div>
-            <CategoryChip category={step.expense.category} />
+            <div className="flex shrink-0 flex-wrap justify-end gap-1">
+              {step.expense.lines.map((line) => (
+                <CategoryChip key={line.id} category={line.category} />
+              ))}
+            </div>
           </div>
         </Card>
 

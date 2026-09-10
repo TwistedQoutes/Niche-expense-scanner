@@ -59,12 +59,22 @@ export const POST = withRoute(async (request) => {
       taxCents: input.taxCents ?? null,
       currency: input.currency,
       spentAt,
-      category: input.category,
-      categoryConfidence: input.categoryConfidence,
-      categorySource: input.categorySource,
       notes: input.notes ?? null,
       rawText: input.rawText ?? null,
+      // Written in one statement with the expense, so a receipt can never exist
+      // without the lines that account for its money.
+      lines: {
+        create: input.lines.map((line, position) => ({
+          label: line.label ?? null,
+          amountCents: line.amountCents,
+          category: line.category,
+          categoryConfidence: line.categoryConfidence,
+          categorySource: line.categorySource,
+          position,
+        })),
+      },
     },
+    include: { lines: { orderBy: { position: 'asc' } } },
   });
 
   return jsonOk<{ expense: ExpenseDto }>({ expense: serialiseExpense(expense) }, { status: 201 });

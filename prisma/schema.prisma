@@ -39,10 +39,16 @@ model Expense {
   // Calendar date the money was spent (receipt date), normalised to UTC midnight.
   spentAt DateTime
 
-  category           String
-  categoryConfidence Float  @default(0)
-  // "auto" when the classifier chose it, "manual" once the artist overrides it.
-  categorySource     String @default("auto")
+  // Categorisation lives on ExpenseLine, not here: a single supplier order can
+  // span needles, ink and gloves, and forcing one category onto it either loses
+  // that detail or files the whole receipt under the wrong Schedule C line.
+  //
+  // Deprecated, retained so existing rows can be backfilled without data loss
+  // (see scripts/backfill-expense-lines.mjs). Drop once every deployment has
+  // run the backfill.
+  category           String?
+  categoryConfidence Float?
+  categorySource     String?
 
   notes    String?
   // Raw OCR text is retained so an expense can be re-parsed after parser
@@ -53,7 +59,43 @@ model Expense {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Every expense has at least one line. An unsplit receipt has exactly one
+  /// covering its whole total; a split receipt has one per category. Keeping a
+  /// single shape means there is one aggregation path rather than two that can
+  /// disagree.
+  lines ExpenseLine[]
+
   @@index([userId, spentAt])
-  @@index([userId, category])
   @@map("expenses")
+}
+
+/// One category's share of a receipt.
+///
+/// The sum of an expense's lines always equals `Expense.amountCents` exactly —
+/// enforced in validation (src/lib/validation.ts) and by apportioning with the
+/// largest-remainder method (src/lib/money.ts) so rounding can never lose or
+/// invent a cent.
+model ExpenseLine {
+  id        String  @id @default(cuid())
+  expenseId String
+  expense   Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  /// What this share was for — "Cartridge needles 3RL", straight off the receipt.
+  label       String?
+  amountCents Int
+
+  category           String
+  categoryConfidence Float  @default(0)
+  /// "auto" when the classifier chose it, "manual" once the artist overrides it.
+  categorySource     String @default("auto")
+
+  /// Stable display order, so editing one line does not reshuffle the rest.
+  position Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([expenseId])
+  @@index([category])
+  @@map("expense_lines")
 }
