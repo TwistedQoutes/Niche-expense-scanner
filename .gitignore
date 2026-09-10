@@ -25,7 +25,10 @@ prisma/*.db-wal
 public/ocr/
 
 # uploads (local disk storage driver)
-storage/
+# Anchored to the repository root on purpose: an unanchored `storage/` also
+# matches src/lib/storage/, which silently excluded the whole storage module
+# from a commit.
+/storage/
 
 # misc
 .DS_Store

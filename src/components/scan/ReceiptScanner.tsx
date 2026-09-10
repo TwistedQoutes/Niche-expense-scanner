@@ -15,9 +15,11 @@ import { formatCents } from '@/lib/money';
 import {
   ACCEPTED_IMAGE_TYPES,
   ImageValidationError,
+  prepareImageForStorage,
   preprocessReceiptImage,
   type PreprocessResult,
 } from '@/lib/ocr/preprocess';
+import { uploadReceiptImage } from '@/lib/receipts/upload';
 import { recogniseReceipt, terminateOcr, type OcrProgress } from '@/lib/ocr/client';
 import type { ExpenseDto, ParseReceiptResponse } from '@/types';
 
@@ -48,7 +50,7 @@ const STAGE_COPY: Record<OcrProgress['stage'], string> = {
  * - The engine download is called out explicitly on first use, because ~15 MB
  *   of silent loading on studio wifi looks like a broken app.
  */
-export function ReceiptScanner() {
+export function ReceiptScanner({ storeImages }: { storeImages: boolean }) {
   const [step, setStep] = useState<Step>({ name: 'choose' });
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -56,6 +58,10 @@ export function ReceiptScanner() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<PreprocessResult | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // The chosen file is held so it can be uploaded *after* the expense is saved
+  // — the upload needs an expense id to attach to.
+  const originalFileRef = useRef<File | null>(null);
+  const [uploadWarning, setUploadWarning] = useState<string | null>(null);
 
   const releaseImage = useCallback(() => {
     imageRef.current?.revoke();
@@ -81,6 +87,7 @@ export function ReceiptScanner() {
       try {
         const image = await preprocessReceiptImage(file);
         imageRef.current = image;
+        originalFileRef.current = file;
         setPreviewUrl(image.previewUrl);
 
         const { text, confidence } = await recogniseReceipt(image.url, (progress) => {
@@ -138,13 +145,41 @@ export function ReceiptScanner() {
 
   function reset() {
     releaseImage();
+    originalFileRef.current = null;
     setError(null);
+    setUploadWarning(null);
     setStep({ name: 'choose' });
+  }
+
+  /**
+   * Retains the receipt image, if the artist has opted in.
+   *
+   * Runs after the expense is saved and never blocks it: a failed upload leaves
+   * a saved expense and a warning, not a lost receipt. The original photo is
+   * re-encoded first, which strips EXIF — including the GPS coordinates most
+   * phones write into it.
+   */
+  async function storeImageIfOptedIn(expense: ExpenseDto) {
+    const file = originalFileRef.current;
+    if (!storeImages || !file) return;
+
+    try {
+      const prepared = await prepareImageForStorage(file);
+      await uploadReceiptImage(expense.id, prepared);
+    } catch (caught) {
+      setUploadWarning(
+        caught instanceof ApiError
+          ? caught.message
+          : 'The expense was saved, but the image could not be kept.',
+      );
+    }
   }
 
   if (step.name === 'saved') {
     return (
       <div className="space-y-4">
+        {uploadWarning ? <Alert tone="warning">{uploadWarning}</Alert> : null}
+
         <Alert tone="success" title="Expense saved">
           {formatCents(step.expense.amountCents, step.expense.currency)} at {step.expense.merchant} —{' '}
           {step.expense.lines.length === 1
@@ -201,8 +236,14 @@ export function ReceiptScanner() {
           scan={step.name === 'review' ? step.scan : undefined}
           rawText={step.name === 'review' ? step.rawText : undefined}
           onSaved={(expense) => {
-            releaseImage();
             setStep({ name: 'saved', expense });
+            // Fire-and-forget: the expense is already saved, and the image is a
+            // bonus. `releaseImage` is deliberately not called until the upload
+            // has read the file it needs.
+            void storeImageIfOptedIn(expense).finally(() => {
+              releaseImage();
+              originalFileRef.current = null;
+            });
           }}
           onCancel={reset}
         />
@@ -241,7 +282,12 @@ export function ReceiptScanner() {
           </div>
 
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            Everything runs on your device — the photo is never uploaded.
+            {/* This claim has to track reality: reading happens on-device
+                either way, but a copy of the photo is kept when the artist has
+                turned retention on. */}
+            {storeImages
+              ? 'Reading happens on your device. A copy of the photo will be kept with the expense.'
+              : 'Everything runs on your device — the photo is never uploaded.'}
           </p>
         </div>
       </Card>
@@ -315,6 +361,12 @@ export function ReceiptScanner() {
 
       <p className="text-center text-xs text-zinc-500 dark:text-zinc-400">
         Best results: flat receipt, even light, no shadow across the total.
+      </p>
+
+      <p className="text-center text-xs text-zinc-400 dark:text-zinc-600">
+        {storeImages
+          ? 'Receipt images are being kept with your expenses. Location data is removed first.'
+          : 'Receipt images are not kept — only the text we read from them.'}
       </p>
     </div>
   );

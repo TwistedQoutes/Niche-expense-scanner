@@ -20,6 +20,15 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  /// Opt-in receipt image retention, off by default.
+  ///
+  /// Keeping images is genuinely useful — the IRS wants documentary evidence
+  /// for expenses over $75 — but it also means we become the custodian of
+  /// photographs that can carry a client's name. So it is the artist's choice
+  /// per account, not a deployment-wide decision, and the UI only claims
+  /// images stay on the device when that is actually true for them.
+  storeReceiptImages Boolean @default(false)
+
   expenses Expense[]
 
   @@map("users")
@@ -54,7 +63,12 @@ model Expense {
   // Raw OCR text is retained so an expense can be re-parsed after parser
   // improvements without asking the user to re-scan the receipt.
   rawText  String?
-  imageKey String?
+
+  /// Storage key for the retained receipt image, or null when none is kept.
+  /// Generated server-side — never derived from anything a client sends.
+  imageKey      String?
+  imageMimeType String?
+  imageBytes    Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

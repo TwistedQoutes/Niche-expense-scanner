@@ -30,6 +30,7 @@ export function TopBar({ user }: { user: UserDto }) {
   const links = [
     { href: '/dashboard', label: 'Expenses' },
     { href: '/scan', label: 'Scan receipt' },
+    { href: '/settings', label: 'Settings' },
   ];
 
   return (

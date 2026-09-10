@@ -4,10 +4,14 @@ import { redirect } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { getCurrentUser } from '@/lib/auth/current-user';
 import { CATEGORY_LIST } from '@/lib/categories/taxonomy';
+import { storageEnabled } from '@/lib/storage';
 
 export default async function LandingPage() {
   // Signed-in artists have no use for the pitch.
   if (await getCurrentUser()) redirect('/dashboard');
+
+  // The privacy claim is only as strong as what this deployment actually does.
+  const canStoreImages = storageEnabled();
 
   const showcased = CATEGORY_LIST.filter((category) => category.id !== 'OTHER').slice(0, 9);
 
@@ -61,8 +65,13 @@ export default async function LandingPage() {
           <div className="flex gap-3">
             <span aria-hidden="true">🔒</span>
             <p>
-              <span className="font-medium text-zinc-900 dark:text-zinc-100">Receipts stay on your phone.</span>{' '}
-              Text recognition runs in your browser — we never upload the image.
+              <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                Reading happens on your phone.
+              </span>{' '}
+              Text recognition runs in your browser, so the image never has to be uploaded.
+              {canStoreImages
+                ? ' Keeping a copy for your records is optional, and off until you turn it on.'
+                : ' We never upload it.'}
             </p>
           </div>
           <div className="flex gap-3">

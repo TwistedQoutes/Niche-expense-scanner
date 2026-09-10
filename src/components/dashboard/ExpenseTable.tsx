@@ -118,6 +118,20 @@ export function ExpenseTable({
                     </p>
                   ) : null}
 
+                  {expense.hasImage ? (
+                    // Loaded only when the row is expanded, and lazily even
+                    // then: a month of receipt photos is many megabytes nobody
+                    // asked for. The route is authenticated, so this is not a
+                    // public URL.
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={`/api/expenses/${expense.id}/receipt`}
+                      alt={`Receipt from ${expense.merchant}`}
+                      loading="lazy"
+                      className="max-h-64 w-full rounded-lg bg-zinc-100 object-contain ring-1 ring-zinc-200 dark:bg-zinc-800 dark:ring-zinc-700"
+                    />
+                  ) : null}
+
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
                       {expense.lines.length === 1

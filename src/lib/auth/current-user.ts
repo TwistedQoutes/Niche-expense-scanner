@@ -8,13 +8,20 @@ import { prisma } from '@/lib/db';
  * The JWT is self-contained, but the user row is still read back so that a
  * deleted account cannot keep acting on a token that has not expired yet.
  */
-export async function requireUser(): Promise<{ id: string; email: string; studioName: string | null }> {
+export type CurrentUser = {
+  id: string;
+  email: string;
+  studioName: string | null;
+  storeReceiptImages: boolean;
+};
+
+export async function requireUser(): Promise<CurrentUser> {
   const session: SessionPayload | null = await getSession();
   if (!session) throw unauthorized();
 
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { id: true, email: true, studioName: true },
+    select: { id: true, email: true, studioName: true, storeReceiptImages: true },
   });
 
   if (!user) throw unauthorized('Your session is no longer valid. Please sign in again.');

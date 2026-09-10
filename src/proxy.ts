@@ -16,7 +16,7 @@ import { SESSION_COOKIE } from '@/lib/auth/session';
  * app shell they cannot use, without turning this file into a second,
  * divergent copy of the auth logic.
  */
-const PROTECTED_PREFIXES = ['/dashboard', '/scan'];
+const PROTECTED_PREFIXES = ['/dashboard', '/scan', '/settings'];
 const AUTH_ROUTES = ['/login', '/signup'];
 
 export function proxy(request: NextRequest) {

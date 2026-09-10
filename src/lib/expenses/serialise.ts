@@ -37,6 +37,7 @@ export function serialiseExpense(expense: ExpenseWithLines): ExpenseDto {
     spentAt: expense.spentAt.toISOString().slice(0, 10),
     notes: expense.notes,
     createdAt: expense.createdAt.toISOString(),
+    hasImage: expense.imageKey !== null,
     // A row predating the backfill would otherwise serialise with no lines at
     // all, which the UI has no way to render. Falling back to the deprecated
     // columns keeps such a row readable until the backfill runs.

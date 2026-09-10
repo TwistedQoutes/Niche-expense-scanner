@@ -1,10 +1,18 @@
 import type { Metadata } from 'next';
 
 import { ReceiptScanner } from '@/components/scan/ReceiptScanner';
+import { requireUser } from '@/lib/auth/current-user';
+import { storageEnabled } from '@/lib/storage';
 
 export const metadata: Metadata = { title: 'Scan a receipt' };
 
-export default function ScanPage() {
+export default async function ScanPage() {
+  const user = await requireUser();
+
+  // Both conditions have to hold: the deployment must be able to store images,
+  // and this artist must have asked it to.
+  const storeImages = storageEnabled() && user.storeReceiptImages;
+
   return (
     <div className="space-y-5">
       <div>
@@ -14,7 +22,7 @@ export default function ScanPage() {
         </p>
       </div>
 
-      <ReceiptScanner />
+      <ReceiptScanner storeImages={storeImages} />
     </div>
   );
 }

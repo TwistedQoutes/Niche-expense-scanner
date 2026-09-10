@@ -26,7 +26,7 @@ export const POST = withRoute(async (request) => {
         passwordHash,
         studioName: studioName && studioName.length > 0 ? studioName : null,
       },
-      select: { id: true, email: true, studioName: true },
+      select: { id: true, email: true, studioName: true, storeReceiptImages: true },
     });
 
     await setSessionCookie(await createSessionToken({ userId: user.id, email: user.email }));

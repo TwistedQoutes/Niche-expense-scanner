@@ -160,3 +160,61 @@ export async function preprocessReceiptImage(file: File): Promise<PreprocessResu
     },
   };
 }
+
+/** Longest edge of a retained image. Plenty to read a total from, far smaller than a raw photo. */
+const ARCHIVE_MAX_EDGE = 2000;
+const ARCHIVE_QUALITY = 0.85;
+
+/**
+ * Prepares the original photo for retention, when the artist has opted in.
+ *
+ * Two things happen here, and the first matters more than the second:
+ *
+ * 1. **EXIF is stripped.** Phone photos carry metadata, and on most phones that
+ *    includes GPS coordinates — so an unmodified receipt photo records where
+ *    the artist was when they took it. Re-encoding through a canvas drops all
+ *    metadata as a side effect of how canvas works, which is exactly what we
+ *    want: we are keeping a picture of a receipt, not a location history.
+ * 2. It is downscaled and JPEG-compressed, because a 12-megapixel original is
+ *    ~5 MB of storage per receipt to prove a $24.50 ink purchase.
+ *
+ * The *original* is used as the source rather than the OCR-preprocessed copy:
+ * the greyscale, contrast-stretched version is tuned for a text recogniser and
+ * would be a poor audit record.
+ */
+export async function prepareImageForStorage(file: File): Promise<Blob> {
+  validateImageFile(file);
+
+  const sourceUrl = URL.createObjectURL(file);
+
+  try {
+    const image = await loadImage(sourceUrl);
+
+    const scale = Math.min(1, ARCHIVE_MAX_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('This browser cannot process images.');
+
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(image, 0, 0, width, height);
+
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('Could not prepare that image for storage.'));
+        },
+        'image/jpeg',
+        ARCHIVE_QUALITY,
+      );
+    });
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}

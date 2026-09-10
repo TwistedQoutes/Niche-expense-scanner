@@ -21,7 +21,13 @@ export const POST = withRoute(async (request) => {
 
   const user = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, email: true, studioName: true, passwordHash: true },
+    select: {
+      id: true,
+      email: true,
+      studioName: true,
+      storeReceiptImages: true,
+      passwordHash: true,
+    },
   });
 
   // One message and one timing profile for both failure modes, so this endpoint
@@ -40,6 +46,11 @@ export const POST = withRoute(async (request) => {
   await setSessionCookie(await createSessionToken({ userId: user.id, email: user.email }));
 
   return jsonOk<{ user: UserDto }>({
-    user: { id: user.id, email: user.email, studioName: user.studioName },
+    user: {
+      id: user.id,
+      email: user.email,
+      studioName: user.studioName,
+      storeReceiptImages: user.storeReceiptImages,
+    },
   });
 });

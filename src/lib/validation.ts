@@ -157,6 +157,12 @@ export const updateExpenseSchema = attachSumInvariant(
     ),
 );
 
+export const updateSettingsSchema = z
+  .object({
+    storeReceiptImages: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, 'Nothing to update.');
+
 export const parseReceiptSchema = z.object({
   rawText: z
     .string()
