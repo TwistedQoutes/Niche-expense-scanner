@@ -8,7 +8,7 @@ import { formatMonthLabel, isMonthKey } from '@/lib/dates';
 import { prisma } from '@/lib/db';
 import { expenseWhere } from '@/lib/expenses/queries';
 import { serialiseExpense } from '@/lib/expenses/serialise';
-import { centsToDecimalString } from '@/lib/money';
+import { centsToDecimalString, totalsByCurrency } from '@/lib/money';
 import { monthQuerySchema } from '@/lib/validation';
 
 export const runtime = 'nodejs';
@@ -90,8 +90,26 @@ export const GET = withRoute(async (request) => {
     });
   });
 
-  const totalCents = expenses.reduce((sum, expense) => sum + expense.amountCents, 0);
-  const taxTotalCents = expenses.reduce((sum, expense) => sum + (expense.taxCents ?? 0), 0);
+  // One totals row per currency. A single row summing every receipt would add
+  // pounds to dollars and print the result as if it were money — the kind of
+  // number that gets copied onto a tax return without anyone noticing.
+  const totals = totalsByCurrency(expenses);
+  const mixed = totals.length > 1;
+
+  const totalRows = totals.map((sums) => [
+    '',
+    mixed ? `TOTAL (${sums.currency})` : 'TOTAL',
+    '',
+    '',
+    centsToDecimalString(sums.totalCents),
+    sums.currency,
+    '',
+    '',
+    '',
+    centsToDecimalString(sums.totalCents),
+    centsToDecimalString(sums.taxCents),
+    mixed ? `${sums.receipts} receipt${sums.receipts === 1 ? '' : 's'}` : '',
+  ]);
 
   // A totals row: the first thing anyone does with this file is check the sum.
   // Because the sum invariant holds, totalling the per-line Amount column gives
@@ -100,20 +118,7 @@ export const GET = withRoute(async (request) => {
   const body = toCsv(HEADERS, [
     ...rows,
     [],
-    [
-      '',
-      'TOTAL',
-      '',
-      '',
-      centsToDecimalString(totalCents),
-      '',
-      '',
-      '',
-      '',
-      centsToDecimalString(totalCents),
-      centsToDecimalString(taxTotalCents),
-      '',
-    ],
+    ...totalRows,
     [
       '',
       `${expenses.length} receipt${expenses.length === 1 ? '' : 's'} in ${rows.length} ${

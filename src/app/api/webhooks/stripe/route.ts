@@ -70,14 +70,30 @@ export const POST = withRoute(async (request) => {
   return Response.json({ received: true });
 });
 
-/** Copies the parts of a subscription we mirror locally onto the user row. */
-async function applySubscription(subscription: Stripe.Subscription): Promise<void> {
+/**
+ * Copies the parts of a subscription we mirror locally onto the user row.
+ *
+ * Returns false when the event carries nothing we can match a user against.
+ * That is not an error to retry: no amount of redelivery adds a customer to a
+ * payload that never had one, and answering non-2xx to something unprocessable
+ * makes Stripe retry it for days and then disable the endpoint — which would
+ * take the *real* payment events down with it.
+ */
+async function applySubscription(subscription: Stripe.Subscription): Promise<boolean> {
+  // Signature verification proves Stripe sent these bytes, not that they have
+  // the shape the types promise, so the fields are checked before they're read.
+  if (typeof subscription !== 'object' || subscription === null) return false;
+
   const customerId =
-    typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
+    typeof subscription.customer === 'string'
+      ? subscription.customer
+      : (subscription.customer?.id ?? null);
 
   // `metadata.userId` is set at checkout; the customer id is the fallback for
   // subscriptions created another way (the Stripe dashboard, say).
   const userId = subscription.metadata?.userId;
+
+  if (!userId && !customerId) return false;
 
   const where = userId ? { id: userId } : { stripeCustomerId: customerId };
 
@@ -86,12 +102,16 @@ async function applySubscription(subscription: Stripe.Subscription): Promise<voi
   await prisma.user.updateMany({
     where,
     data: {
-      stripeCustomerId: customerId,
+      // Only overwrite the stored customer id when this event actually carries
+      // one, so a metadata-matched event cannot blank it out.
+      ...(customerId ? { stripeCustomerId: customerId } : {}),
       stripeSubscriptionId: subscription.id,
       subscriptionStatus: subscription.status,
       currentPeriodEnd: periodEnd(subscription),
     },
   });
+
+  return true;
 }
 
 /**
@@ -113,7 +133,7 @@ async function handleEvent(stripe: Stripe, event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object;
-      if (!session.subscription) return;
+      if (!session?.subscription) return;
 
       const subscriptionId =
         typeof session.subscription === 'string' ? session.subscription : session.subscription.id;
@@ -128,14 +148,20 @@ async function handleEvent(stripe: Stripe, event: Stripe.Event): Promise<void> {
     case 'customer.subscription.created':
     case 'customer.subscription.updated':
     case 'customer.subscription.deleted': {
-      await applySubscription(event.data.object);
+      const applied = await applySubscription(event.data.object);
+      if (!applied) {
+        console.warn('[stripe] ignored a subscription event with no user to match', {
+          id: event.id,
+          type: event.type,
+        });
+      }
       return;
     }
 
     case 'invoice.payment_failed': {
       const invoice = event.data.object;
       const customerId =
-        typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
+        typeof invoice?.customer === 'string' ? invoice.customer : invoice?.customer?.id;
       if (!customerId) return;
 
       // Marked past_due, which keeps the account writable while Stripe retries.

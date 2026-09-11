@@ -6,6 +6,7 @@ import {
   formatCents,
   parseAmountToCents,
   splitBalances,
+  totalsByCurrency,
 } from '@/lib/money';
 
 describe('parseAmountToCents', () => {
@@ -162,5 +163,45 @@ describe('splitBalances', () => {
     expect(splitBalances(1000, [500, 500])).toBe(true);
     expect(splitBalances(1000, [500, 499])).toBe(false);
     expect(splitBalances(1000, [])).toBe(false);
+  });
+});
+
+describe('totalsByCurrency', () => {
+  it('never adds one currency to another', () => {
+    // The bug this guards: a single sum reported $198.39 for $133.40 plus
+    // £64.99, and that figure reached both the dashboard and the CSV export.
+    const totals = totalsByCurrency([
+      { currency: 'USD', amountCents: 12_340, taxCents: 100 },
+      { currency: 'GBP', amountCents: 6_499, taxCents: null },
+      { currency: 'USD', amountCents: 1_000, taxCents: null },
+    ]);
+
+    expect(totals).toEqual([
+      { currency: 'USD', totalCents: 13_340, taxCents: 100, receipts: 2 },
+      { currency: 'GBP', totalCents: 6_499, taxCents: 0, receipts: 1 },
+    ]);
+  });
+
+  it('orders by size so the headline figures describe the main currency', () => {
+    const totals = totalsByCurrency([
+      { currency: 'EUR', amountCents: 100, taxCents: null },
+      { currency: 'USD', amountCents: 9_999, taxCents: null },
+    ]);
+
+    expect(totals.map((entry) => entry.currency)).toEqual(['USD', 'EUR']);
+  });
+
+  it('breaks ties on currency code, so the output is deterministic', () => {
+    const totals = totalsByCurrency([
+      { currency: 'USD', amountCents: 500, taxCents: null },
+      { currency: 'GBP', amountCents: 500, taxCents: null },
+      { currency: 'EUR', amountCents: 500, taxCents: null },
+    ]);
+
+    expect(totals.map((entry) => entry.currency)).toEqual(['EUR', 'GBP', 'USD']);
+  });
+
+  it('has nothing to report for an empty month', () => {
+    expect(totalsByCurrency([])).toEqual([]);
   });
 });
