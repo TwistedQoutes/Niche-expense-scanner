@@ -5,7 +5,7 @@ import { jsonOk, toFieldErrors } from '@/lib/api/response';
 import { requireUser } from '@/lib/auth/current-user';
 import { MIN_CONFIDENCE, classifyExpense } from '@/lib/categories/classify';
 import { suggestSplit } from '@/lib/expenses/split';
-import { parseReceiptText } from '@/lib/ocr/parse-receipt';
+import { looksLikeRefund, parseReceiptText } from '@/lib/ocr/parse-receipt';
 import { parseReceiptSchema } from '@/lib/validation';
 import type { ParseReceiptResponse } from '@/types';
 
@@ -35,7 +35,16 @@ export const POST = withRoute(async (request) => {
   const category = classifyExpense({ merchant: fields.merchant.value, rawText });
   const suggestedLines = suggestSplit(rawText, fields.amountCents.value);
 
+  // A refund is money coming back, and this product only records money going
+  // out. Saying so is more use than an empty Total field the artist fills in
+  // with a positive number out of habit.
+  const refund = looksLikeRefund(rawText);
+  const notice = refund
+    ? 'This looks like a refund or credit note. Expenses are recorded as money spent, so check the total before saving.'
+    : null;
+
   const needsReview =
+    refund ||
     fields.amountCents.value === null ||
     fields.amountCents.confidence < 0.6 ||
     fields.spentAt.value === null ||
@@ -57,5 +66,6 @@ export const POST = withRoute(async (request) => {
     },
     suggestedLines,
     needsReview,
+    notice,
   });
 });

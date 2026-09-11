@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseReceiptText, tidyMerchantName } from '@/lib/ocr/parse-receipt';
+import { looksLikeRefund, parseReceiptText, tidyMerchantName } from '@/lib/ocr/parse-receipt';
 
 /** Fixed "now" so date plausibility checks are deterministic. */
 const NOW = new Date('2026-09-10T12:00:00Z');
@@ -191,5 +191,41 @@ describe('parseReceiptText — real OCR noise', () => {
   it('does not invent a date when the receipt has none', () => {
     const parsed = parseReceiptText(['SUPPLY CO', 'TOTAL 5.00'].join('\n'), NOW);
     expect(parsed.spentAt.value).toBeNull();
+  });
+});
+
+describe('refunds and credits', () => {
+  it('does not turn a negative total into a positive expense', () => {
+    // The bug: AMOUNT_PATTERN matches from the first digit, so the minus sign
+    // sat outside the match and "TOTAL -45.00" became a $45.00 purchase.
+    const parsed = parseReceiptText('Kingpin Tattoo Supply\nTOTAL -45.00\n');
+    expect(parsed.amountCents.value).toBeNull();
+  });
+
+  it('ignores accounting brackets too', () => {
+    const parsed = parseReceiptText('Kingpin Tattoo Supply\nTOTAL (45.00)\n');
+    expect(parsed.amountCents.value).toBeNull();
+  });
+
+  it('ignores a trailing minus, which is how some tills print a credit', () => {
+    const parsed = parseReceiptText('Kingpin Tattoo Supply\nTOTAL 45.00-\n');
+    expect(parsed.amountCents.value).toBeNull();
+  });
+
+  it('still reads an ordinary total', () => {
+    const parsed = parseReceiptText('Kingpin Tattoo Supply\nTOTAL 45.00\n');
+    expect(parsed.amountCents.value).toBe(4500);
+  });
+
+  it('flags text that reads like a refund', () => {
+    expect(looksLikeRefund('REFUND\nTOTAL 45.00')).toBe(true);
+    expect(looksLikeRefund('Credit Note 118\nTOTAL 45.00')).toBe(true);
+    expect(looksLikeRefund('TOTAL -45.00')).toBe(true);
+  });
+
+  it('does not flag an ordinary receipt', () => {
+    expect(looksLikeRefund('Kingpin Tattoo Supply\nGloves 12.00\nTOTAL 45.00')).toBe(false);
+    // "Returns accepted within 30 days" is small print, not a refund.
+    expect(looksLikeRefund('TOTAL 45.00\nReturns accepted within 30 days')).toBe(false);
   });
 });

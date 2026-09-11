@@ -93,6 +93,11 @@ export type ParseReceiptResponse = {
     | null;
   /** True when at least one field needs the artist's eyes before saving. */
   needsReview: boolean;
+  /**
+   * A specific reason the scan needs attention, when there is one worth
+   * naming. `needsReview` says "look"; this says what to look at.
+   */
+  notice: string | null;
 };
 
 export type UserDto = {
