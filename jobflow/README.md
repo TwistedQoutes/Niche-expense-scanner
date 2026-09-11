@@ -18,9 +18,9 @@ LEAD → AI QUALIFICATION → CUSTOMER → PROPERTY → ESTIMATE → QUOTE
 
 ## Where this is up to
 
-The build is phased. **Phases 1–4 are complete and verified**: project setup,
+The build is phased. **Phases 1–5 are complete and verified**: project setup,
 the full database schema, multi-tenancy, authentication, the dashboard shell,
-and the lead pipeline and CRM.
+the lead pipeline and CRM, and the services catalogue and pricing engine.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -28,8 +28,8 @@ and the lead pipeline and CRM.
 | 2 | Database schema, multi-tenancy, workspace provisioning | ✅ Done |
 | 3 | Dashboard, navigation, UI components | ✅ Shell done |
 | 4 | Customers, leads, CRM, Kanban pipeline | ✅ Done |
-| 5 | Services, pricing engine, quote calculator | Next |
-| 6 | Quote generation, public quote pages, acceptance | Planned |
+| 5 | Services, pricing engine, quote calculator | ✅ Done |
+| 6 | Quote generation, public quote pages, acceptance | Next |
 | 7 | AI lead qualification, AI responses | Planned |
 | 8 | Email/SMS, Twilio, Resend, automated follow-up | Planned |
 | 9 | Calendar, appointments, jobs | Planned |
@@ -169,6 +169,56 @@ a billing problem into a cancellation.
 
 ---
 
+## Pricing
+
+`src/lib/pricing/engine.ts` is one pure function. No database, no clock, no
+randomness — the same inputs always produce the same quote, which is what makes
+a price defensible six months later when a customer asks how it was reached.
+
+**A target margin is reached by division, not markup.** This is the single most
+important line in the codebase. Adding 30% to a $100 cost gives $130, on which
+the profit is $30 of $130 — a 23% margin. To actually keep 30% of the sale the
+divisor is (1 − margin): 100 / 0.70 = $142.86. An operator who quotes the first
+number and budgets for the second loses the difference on every job, and it is
+the most common pricing mistake in the trades.
+
+**Every step is emitted as a labelled line.** A total with no working is
+something an owner cannot check, adjust, or explain to a customer standing next
+to them. The calculator renders the whole derivation.
+
+The order is: base charge → area → labour → materials → equipment → travel →
+overhead → pricing rules → **estimated cost** → margin → minimum floor → fees →
+discount → override → tax → **customer price**.
+
+Decisions worth knowing:
+
+- **Pricing rules add to cost, not to price.** If a steep slope or a winter
+  callout makes a job harder, the extra effort should earn margin like every
+  other hour. A surcharge on the price would give the hardest jobs the thinnest
+  margin — exactly backwards.
+- **Area rounds up.** A crew servicing 1,500 sq ft against a 1,000 sq ft unit
+  does the whole extra pass, not half of one.
+- **The minimum is a floor on the price, not on the discounted total.** A
+  discount below the floor is a deliberate decision — a repeat customer, a
+  goodwill gesture — so it is allowed and simply reported.
+- **Sales tax is excluded from profit.** It was collected for the state and was
+  never the business's money; counting it as revenue would overstate every
+  margin on the dashboard.
+- **The override is honoured exactly, and then audited.** The engine recomputes
+  the achieved margin and warns when it falls short of target or goes below
+  cost, so a deliberate discount is visible rather than silently eroding the
+  number the business was built on.
+- **A minimum below the base price is inert, not invalid.** The base is a cost
+  component, so the margin price always clears it. Rejecting it as an error
+  meant an owner could not edit a service that shipped with their own workspace.
+
+The arithmetic runs on the server even though the engine is pure and could run
+in the browser. Labour rates, margins and pricing rules are the most
+commercially sensitive numbers a business has; shipping them to the client so a
+form can do sums hands them to anyone who opens the network tab.
+
+---
+
 ## Multi-tenancy
 
 Every business's rows live in the same tables, separated by `organizationId`.
@@ -252,6 +302,21 @@ What it provides:
 | Read one customer with full history | `GET /api/customers/[id]` |
 | Update a customer | `PATCH /api/customers/[id]` |
 | Delete a customer (ADMIN) | `DELETE /api/customers/[id]` |
+
+### Services and pricing
+
+| Operation | Route |
+| --- | --- |
+| List services | `GET /api/services` |
+| Create a service (ADMIN) | `POST /api/services` |
+| Update a service (ADMIN) | `PATCH /api/services/[id]` |
+| Delete a service (ADMIN) | `DELETE /api/services/[id]` |
+| List pricing rules | `GET /api/pricing-rules` |
+| Create a rule (ADMIN) | `POST /api/pricing-rules` |
+| Update a rule (ADMIN) | `PATCH /api/pricing-rules/[id]` |
+| Delete a rule (ADMIN) | `DELETE /api/pricing-rules/[id]` |
+| Change workspace defaults (ADMIN) | `PATCH /api/pricing/defaults` |
+| Price a job without saving it | `POST /api/pricing/calculate` |
 
 Security properties worth knowing about:
 
@@ -409,13 +474,17 @@ jobflow/
 │   │   ├── (app)/                 signed-in shell; authorises in its layout
 │   │   │   ├── customers/         list and full CRM detail
 │   │   │   ├── dashboard/
-│   │   │   └── leads/             pipeline board, new, detail
+│   │   │   ├── leads/             pipeline board, new, detail
+│   │   │   └── pricing-settings/  defaults, catalogue, rules, calculator
 │   │   ├── (auth)/                login, signup, password reset, verification
 │   │   ├── api/
 │   │   │   ├── auth/              signup, login, logout, me, reset, verify
 │   │   │   ├── customers/         list, create, read, update, delete
 │   │   │   ├── health/            liveness plus a real database round-trip
-│   │   │   └── leads/             list, create, move, convert, notes
+│   │   │   ├── leads/             list, create, move, convert, notes
+│   │   │   ├── pricing/           defaults, calculate
+│   │   │   ├── pricing-rules/     list, create, update, delete
+│   │   │   └── services/          list, create, update, delete
 │   │   ├── legal/                 terms, privacy
 │   │   ├── error.tsx              error boundary
 │   │   ├── not-found.tsx
@@ -426,6 +495,7 @@ jobflow/
 │   │   ├── auth/                  sign-in, sign-up, reset, verify forms
 │   │   ├── layout/                sidebar, bottom nav, top bar, nav map
 │   │   ├── leads/                 pipeline board, card, actions, new form
+│   │   ├── pricing/               defaults form, service editor, calculator
 │   │   ├── legal/
 │   │   └── ui/                    Button, Card, Field, Alert, Badge,
 │   │                              StatCard, EmptyState, Skeleton, Toast
@@ -437,6 +507,7 @@ jobflow/
 │   │   ├── customers/repository.ts CRM reads and rollups
 │   │   ├── db/                    client + tenant isolation
 │   │   ├── leads/                 pipeline definition, ordering, repository
+│   │   ├── pricing/engine.ts      the pure pricing calculation
 │   │   ├── email/
 │   │   ├── organizations/         workspace provisioning
 │   │   ├── services/templates.ts  starter catalogue per trade
@@ -491,10 +562,12 @@ To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 npm test
 ```
 
-147 tests covering tenant isolation, session tokens and revocation, the
-redirect-loop regression, pipeline ordering and respacing, plan resolution,
-money and margin arithmetic, request validation, plan limits, rate limiting,
-workspace slugs and the service catalogue.
+195 tests covering tenant isolation, session tokens and revocation, the
+redirect-loop regression, the pricing engine (including the specification's own
+worked example, margin-versus-markup, rules, floors, tax and overrides),
+pipeline ordering and respacing, plan resolution, money arithmetic, request
+validation, plan limits, rate limiting, workspace slugs and the service
+catalogue.
 
 The most important file is `tests/tenant-isolation.test.ts`. Isolation is the one
 property whose failure is unrecoverable — a customer list shown to the wrong

@@ -145,7 +145,9 @@ export const SERVICE_TEMPLATES: Record<string, ServiceTemplate> = {
     name: 'Snow Removal',
     description: 'Clear driveway and walkways, salt applied where needed.',
     basePriceCents: 7500,
-    minimumPriceCents: 6500,
+    // Equal to the base, not below it: the base is a cost component, so a lower
+    // floor could never fire.
+    minimumPriceCents: 7500,
     unitPriceCents: 0,
     unitSizeSqFt: 1000,
     estimatedMinutes: 45,
