@@ -1,4 +1,4 @@
-import { getEnv } from '@/lib/env';
+import { getPublicConfig } from '@/lib/env';
 
 /**
  * The price shown on the subscribe button.
@@ -11,5 +11,5 @@ import { getEnv } from '@/lib/env';
  * Keep `PRICE_LABEL` in step with the Stripe price whenever it changes.
  */
 export function describePrice(): string {
-  return getEnv().PRICE_LABEL;
+  return getPublicConfig().priceLabel;
 }

@@ -6,6 +6,7 @@ import { ReceiptStorageToggle } from '@/components/settings/ReceiptStorageToggle
 import { SecurityPanel } from '@/components/settings/SecurityPanel';
 import { requireUser } from '@/lib/auth/current-user';
 import { evaluateAccess } from '@/lib/billing/access';
+import { emailEnabled } from '@/lib/email';
 import { describePrice } from '@/lib/billing/price';
 import { MAX_STORED_IMAGE_BYTES, storageEnabled } from '@/lib/storage';
 
@@ -38,7 +39,11 @@ export default async function SettingsPage() {
         maxImageBytes={MAX_STORED_IMAGE_BYTES}
       />
 
-      <SecurityPanel emailVerified={user.emailVerifiedAt !== null} email={user.email} />
+      <SecurityPanel
+        emailVerified={user.emailVerifiedAt !== null}
+        email={user.email}
+        emailDeliverable={emailEnabled()}
+      />
 
       <DangerZone />
     </div>

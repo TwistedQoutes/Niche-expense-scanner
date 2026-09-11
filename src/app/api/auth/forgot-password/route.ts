@@ -3,6 +3,7 @@ import { readJsonBody, withRoute } from '@/lib/api/handler';
 import { RATE_LIMITS, clientIp, enforceRateLimit } from '@/lib/api/rate-limit';
 import { jsonOk, toFieldErrors } from '@/lib/api/response';
 import { sendPasswordResetEmail } from '@/lib/auth/emails';
+import { pruneTokens } from '@/lib/auth/tokens';
 import { prisma } from '@/lib/db';
 import { forgotPasswordSchema } from '@/lib/validation';
 
@@ -42,6 +43,13 @@ export const POST = withRoute(async (request) => {
       });
     }
   }
+
+  // Opportunistic housekeeping. Spent and expired tokens would otherwise
+  // accumulate forever, and this endpoint is rare enough to carry the cost
+  // without needing a scheduled job.
+  void pruneTokens().catch((error: unknown) => {
+    console.error('[forgot-password] token pruning failed', error);
+  });
 
   return jsonOk({
     message: 'If that email has an account, a reset link is on its way.',

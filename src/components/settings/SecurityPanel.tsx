@@ -11,9 +11,12 @@ import { ApiError, apiRequest } from '@/lib/api-client';
 export function SecurityPanel({
   emailVerified,
   email,
+  emailDeliverable,
 }: {
   emailVerified: boolean;
   email: string;
+  /** False when no mail provider is configured, so nothing can actually send. */
+  emailDeliverable: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<'verify' | 'signout' | null>(null);
@@ -60,6 +63,16 @@ export function SecurityPanel({
         {notice ? <Alert tone="success">{notice}</Alert> : null}
         {error ? <Alert tone="error">{error}</Alert> : null}
 
+        {!emailDeliverable ? (
+          // The failure this prevents is silent and severe: without a mail
+          // provider, "reset my password" appears to work and delivers nothing.
+          <Alert tone="error" title="Email is not configured on this installation">
+            Password resets and confirmations cannot be delivered. Set
+            <code> EMAIL_DRIVER</code> and <code>RESEND_API_KEY</code> before relying on account
+            recovery.
+          </Alert>
+        ) : null}
+
         {!emailVerified ? (
           <Alert tone="warning" title="Confirm your email">
             Until you do, a forgotten password cannot be reset — and that is the one moment you
@@ -68,7 +81,7 @@ export function SecurityPanel({
         ) : null}
 
         <div className="flex flex-wrap gap-2">
-          {!emailVerified ? (
+          {!emailVerified && emailDeliverable ? (
             <Button variant="secondary" loading={busy === 'verify'} onClick={() => void resendVerification()}>
               Send the confirmation again
             </Button>

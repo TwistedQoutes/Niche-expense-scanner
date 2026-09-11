@@ -1,0 +1,23 @@
+# Netlify build configuration.
+#
+# Vercel ignores this file, so keeping it costs nothing if you move hosts.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  # This project needs Node 22.12+ (vitest's floor, declared in package.json
+  # engines). Netlify's default is older, and the failure it produces — an
+  # engine warning during install, then an unrelated-looking crash — is not
+  # obviously about the Node version, so pin it explicitly.
+  NODE_VERSION = "22"
+  # The build compiles code and never connects to a database, so it needs no
+  # secrets. Set DATABASE_URL, AUTH_SECRET and the rest in the Netlify UI under
+  # Site configuration → Environment variables: they are read at request time.
+  NEXT_TELEMETRY_DISABLED = "1"
+
+# Netlify auto-detects Next.js, but declaring the runtime makes the build
+# reproducible rather than dependent on detection.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

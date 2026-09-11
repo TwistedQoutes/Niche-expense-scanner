@@ -36,8 +36,3 @@ export function resolveStorage(): StorageDriver | null {
 export function storageEnabled(): boolean {
   return resolveStorage() !== null;
 }
-
-/** Test seam: forces the driver to be resolved again. */
-export function __resetStorage(): void {
-  cached = undefined;
-}

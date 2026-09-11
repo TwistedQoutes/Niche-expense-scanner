@@ -80,8 +80,3 @@ export function clientIp(request: Request): string {
   }
   return request.headers.get('x-real-ip') ?? 'unknown';
 }
-
-/** Test seam: drops every counter. */
-export function __resetRateLimits(): void {
-  windows.clear();
-}

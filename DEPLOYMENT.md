@@ -12,7 +12,7 @@ Work top to bottom; each step depends on the one before it.
 | What | Cost | Why |
 | --- | --- | --- |
 | A domain | ~$12/year | You are asking people for card details. A `.vercel.app` address undermines that. |
-| Vercel account | Free to start | Hosting. |
+| Netlify **or** Vercel account | Free to start | Hosting. Both work; the repo has `netlify.toml` committed and Vercel ignores it. |
 | Neon or Supabase account | Free tier is enough to launch | Postgres. |
 | Stripe account | 2.9% + 30¢ per charge | Payments. |
 | Resend account | Free to 3,000 emails/month | Password resets. |
@@ -61,14 +61,33 @@ it is the only migration command that should ever run against production.
 
 ## 4. Deploy (15 min)
 
-1. Push this repository to GitHub (already done) and import it at
-   [vercel.com/new](https://vercel.com/new).
-2. Framework preset: **Next.js**. No build command changes needed.
-3. Add your domain under the project's Domains tab and follow the DNS steps.
+**The build needs no secrets.** It compiles code and never opens a database
+connection, so it succeeds on a brand-new site before any environment variable
+is set. Deploy first, configure second — the reverse order is impossible, and
+an earlier version of this app got it wrong.
+
+### Netlify
+
+1. Add new site → Import an existing project → pick this repository.
+2. Leave the build settings alone: `netlify.toml` in the repo already sets the
+   build command, the publish directory, the Next.js runtime plugin, and
+   `NODE_VERSION = 22` (this project needs 22.12+, and Netlify's default is
+   older).
+3. Add your domain under Domain management.
+
+### Vercel
+
+1. Import the repository at [vercel.com/new](https://vercel.com/new).
+2. Framework preset: **Next.js**. No changes needed.
+3. Add your domain under the project's Domains tab.
 
 ## 5. Environment variables (10 min)
 
-In Vercel → Settings → Environment Variables, add:
+Netlify: **Site configuration → Environment variables.**
+Vercel: **Settings → Environment Variables.**
+
+These are read when a request is served, not when the site is built — so add
+them and redeploy.
 
 ```
 DATABASE_URL          <pooled connection string from step 1>
@@ -88,9 +107,9 @@ SUPPORT_EMAIL         <an address you actually read>
 `AUTH_SECRET` must be genuinely random and must never change after launch —
 rotating it signs out every user at once.
 
-Leave `RECEIPT_STORAGE_DRIVER` unset. The local driver writes to disk, and
-Vercel's filesystem is ephemeral, so images would vanish between requests. See
-"Receipt images" below.
+Leave `RECEIPT_STORAGE_DRIVER` unset. The local driver writes to disk, and both
+Netlify's and Vercel's filesystems are ephemeral, so images would vanish between
+requests. See "Receipt images" below.
 
 ## 6. Stripe webhook (10 min)
 
@@ -147,7 +166,8 @@ a *third party's* details, such as a client's name on a deposit slip.
 
 ## Receipt images in production
 
-The bundled `local` driver needs a persistent disk and will not work on Vercel.
+The bundled `local` driver needs a persistent disk and will not work on Netlify
+or Vercel.
 To offer image retention, implement the three-method `StorageDriver` contract in
 `src/lib/storage/driver.ts` against S3 or Cloudflare R2 and return it from
 `resolveStorage()`. No call site changes. Until then leave the driver unset:
@@ -160,9 +180,37 @@ Being straight about the edges, so nothing surprises you later:
 - **No error tracking.** Unhandled errors log an incident id to the server
   console and nowhere else. Add Sentry early — it is a ten-minute job and it is
   how you find out about breakage before a customer emails.
-- **Rate limiting is per-instance.** In memory, so with several Vercel
+- **Rate limiting is per-instance.** In memory, so with several serverless
   instances the effective limits are multiplied. Fine at launch; move
   `enforceRateLimit` onto Redis before you have real traffic.
 - **`'unsafe-inline'` in the script CSP**, required by Next's runtime. Moving to
   per-request nonces is the hardening step.
 - **No admin view.** You will be reading the database directly for support.
+
+---
+
+## If the build fails
+
+The build deliberately requires **no** environment variables, so a build failure
+is almost never about missing configuration. In order of likelihood:
+
+**"Cannot find module" or an engine warning during install.** The Node version
+is too old. `netlify.toml` pins `NODE_VERSION = "22"`; on Vercel set the Node
+version to 22.x in Project Settings. The project needs 22.12+.
+
+**The site builds but every page 500s.** That *is* configuration: the app is
+running without `DATABASE_URL` or `AUTH_SECRET`. Check `/api/health` — it
+answers `{"status":"degraded","database":"down"}` with a 503 when the database
+is unreachable, and the server log names the missing variable exactly.
+
+**Migrations have not run.** The build does not touch your database. Apply the
+schema once, from your own machine:
+
+```bash
+DATABASE_URL="<your pooled connection string>" npx prisma migrate deploy
+```
+
+**Checkout works but the account stays on "trial".** The webhook is not
+reaching you. Stripe → Developers → Webhooks shows every delivery attempt and
+the response it got; a 404 there means the URL is wrong, a 400 means the
+signing secret does not match.

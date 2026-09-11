@@ -172,7 +172,13 @@ npm run dev                     # http://localhost:3000
 
 **Deploying for real?** `DEPLOYMENT.md` is the click-by-click runbook: database,
 email, Stripe, environment variables, the webhook, and the checklist to run
-before taking a first payment.
+before taking a first payment. It covers Netlify and Vercel, and has a
+troubleshooting section.
+
+**The build requires no environment variables.** It compiles code and never
+opens a database connection, so a brand-new site builds before anything is
+configured. Environment variables are read when a request is served. This is
+load-bearing: the reverse order is impossible on a host that has never built.
 
 Postgres in every environment, including local development — dev/prod parity
 matters more than zero-setup once real money and real tax records are involved.

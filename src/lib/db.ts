@@ -35,8 +35,40 @@ function createPrismaClient(): PrismaClient {
  */
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-export const prisma: PrismaClient = globalForPrisma.prisma ?? createPrismaClient();
+function client(): PrismaClient {
+  if (globalForPrisma.prisma) return globalForPrisma.prisma;
 
-if (getEnv().NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
+  const created = createPrismaClient();
+
+  // Cached in every environment, not just development. A serverless instance
+  // handles many requests, and building a pool per request would exhaust the
+  // database's connection limit almost immediately.
+  globalForPrisma.prisma = created;
+  return created;
 }
+
+/**
+ * The Prisma client, constructed on first use rather than on import.
+ *
+ * This laziness is load-bearing for deployment. `next build` imports every
+ * route module to collect page data, so an eagerly-created client made the
+ * *build* require `DATABASE_URL` and `AUTH_SECRET` — which meant the app could
+ * not compile on any host until production secrets were already configured,
+ * and a preview build could never run at all.
+ *
+ * A build should compile code, not connect to a database. Deferring the
+ * constructor behind a proxy moves environment validation to the first real
+ * query, where a missing variable is a clear runtime error instead of an
+ * inscrutable build failure.
+ */
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, property, receiver) {
+    const value = Reflect.get(client(), property, receiver) as unknown;
+    // Methods have to stay bound to the real client, or `this` is the proxy.
+    return typeof value === 'function' ? value.bind(client()) : value;
+  },
+  has: (_target, property) => property in client(),
+  ownKeys: () => Reflect.ownKeys(client()),
+  getOwnPropertyDescriptor: (_target, property) =>
+    Reflect.getOwnPropertyDescriptor(client(), property),
+});

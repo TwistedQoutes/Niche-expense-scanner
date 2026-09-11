@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import { prisma } from '@/lib/db';
 
@@ -84,17 +84,6 @@ export async function redeemToken(
   if (claimed.count === 0) return null;
 
   return record.userId;
-}
-
-/**
- * Constant-time string comparison, for anywhere a secret is compared outside
- * the hash lookup above.
- */
-export function safeEqual(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  if (left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
 }
 
 /** Housekeeping: drops tokens that are spent or long expired. */
