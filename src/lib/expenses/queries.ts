@@ -140,19 +140,20 @@ export async function summariseMonth(userId: string, month: MonthKey): Promise<M
 
 /** Months that actually contain expenses, so the filter never offers an empty one. */
 export async function monthsWithExpenses(userId: string): Promise<MonthKey[]> {
-  const rows = await prisma.expense.findMany({
-    where: { userId },
-    select: { spentAt: true },
-    orderBy: { spentAt: 'desc' },
-    // A generous cap: enough for years of history, bounded so a pathological
-    // account cannot pull an unbounded result set into memory.
-    take: 5_000,
-  });
+  // Distinct months are computed in the database rather than by reading every
+  // row and de-duplicating in JavaScript. The answer is at most a couple of
+  // dozen strings either way, but the old version transferred one row per
+  // receipt to produce them — on every dashboard load, growing with the
+  // account, for a value that never gets bigger.
+  //
+  // `spentAt` is TIMESTAMP without time zone holding UTC midnight, so `to_char`
+  // reads the stored day directly with no zone conversion to get wrong.
+  const rows = await prisma.$queryRaw<{ month: string }[]>`
+    SELECT DISTINCT to_char("spentAt", 'YYYY-MM') AS month
+    FROM expenses
+    WHERE "userId" = ${userId}
+    ORDER BY month DESC
+  `;
 
-  const months = new Set<MonthKey>();
-  for (const row of rows) {
-    months.add(row.spentAt.toISOString().slice(0, 7));
-  }
-
-  return [...months].sort().reverse();
+  return rows.map((row) => row.month);
 }
