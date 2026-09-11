@@ -4,7 +4,8 @@ import { RATE_LIMITS, enforceRateLimit } from '@/lib/api/rate-limit';
 import { jsonOk, toFieldErrors } from '@/lib/api/response';
 import { requireUser } from '@/lib/auth/current-user';
 import { prisma } from '@/lib/db';
-import { MAX_STORED_IMAGE_BYTES, resolveStorage, storageEnabled } from '@/lib/storage';
+import { MAX_STORED_IMAGE_BYTES, storageEnabled } from '@/lib/storage';
+import { purgeStoredImages } from '@/lib/storage/purge';
 import { updateSettingsSchema } from '@/lib/validation';
 import type { CapabilitiesDto, UserDto } from '@/types';
 
@@ -54,28 +55,7 @@ export const PATCH = withRoute(async (request) => {
   // change: an artist who turns this off is entitled to expect the images we
   // already hold to be gone.
   if (storeReceiptImages === false) {
-    const storage = resolveStorage();
-    const stored = await prisma.expense.findMany({
-      where: { userId: user.id, imageKey: { not: null } },
-      select: { id: true, imageKey: true },
-    });
-
-    await prisma.expense.updateMany({
-      where: { userId: user.id },
-      data: { imageKey: null, imageMimeType: null, imageBytes: null },
-    });
-
-    if (storage) {
-      for (const expense of stored) {
-        if (!expense.imageKey) continue;
-        await storage.delete(expense.imageKey).catch((error: unknown) => {
-          console.error('[settings] could not remove a stored receipt image', {
-            expenseId: expense.id,
-            error,
-          });
-        });
-      }
-    }
+    await purgeStoredImages(user.id);
   }
 
   return jsonOk<{ user: UserDto }>({ user: updated });
