@@ -18,22 +18,23 @@ LEAD → AI QUALIFICATION → CUSTOMER → PROPERTY → ESTIMATE → QUOTE
 
 ## Where this is up to
 
-The build is phased. **Phase 1 and 2 are complete and verified**: project setup,
-the full database schema, multi-tenancy, authentication, and the dashboard shell.
+The build is phased. **Phases 1–4 are complete and verified**: project setup,
+the full database schema, multi-tenancy, authentication, the dashboard shell,
+and the lead pipeline and CRM.
 
 | Phase | Scope | State |
 | --- | --- | --- |
 | 1 | Setup, Next.js, TypeScript, Tailwind, Prisma, Postgres, authentication | ✅ Done |
 | 2 | Database schema, multi-tenancy, workspace provisioning | ✅ Done |
 | 3 | Dashboard, navigation, UI components | ✅ Shell done |
-| 4 | Customers, leads, CRM, Kanban pipeline | Next |
-| 5 | Services, pricing engine, quote calculator | Planned |
+| 4 | Customers, leads, CRM, Kanban pipeline | ✅ Done |
+| 5 | Services, pricing engine, quote calculator | Next |
 | 6 | Quote generation, public quote pages, acceptance | Planned |
 | 7 | AI lead qualification, AI responses | Planned |
 | 8 | Email/SMS, Twilio, Resend, automated follow-up | Planned |
 | 9 | Calendar, appointments, jobs | Planned |
 | 10 | Review requests, customer reactivation | Planned |
-| 11 | Stripe billing, subscriptions, usage limits | Planned |
+| 11 | Stripe billing, subscriptions, usage limits | Usage metering done |
 | 12 | Analytics, admin dashboard | Planned |
 | 13 | Landing page, onboarding, demo mode | Landing page done |
 | 14 | Testing, security, performance, deployment | Ongoing |
@@ -127,6 +128,47 @@ no membership — is unreachable by the person who just signed up for it.
 
 ---
 
+## The pipeline
+
+The board is the product's main screen, and two decisions in it are worth
+stating.
+
+**Two ways to move a card.** Dragging is what a board is for, and it works on a
+desktop. But HTML5 drag-and-drop does nothing on touch, and these users are on a
+phone in a truck more often than at a desk — so every card also carries a status
+select. That is not a degraded fallback: on a phone it is the better
+interaction, it is keyboard-operable, and a screen reader can drive it.
+
+**Ordering is server-side.** A drag sends the two cards it was dropped between,
+never a number. The server takes the midpoint of their positions, so a move is
+one `UPDATE` rather than renumbering the column. Positions are spaced 65,536
+apart, which allows sixteen consecutive drops into the same slot before the
+integers between two neighbours run out; at that point the column is respaced
+and the card is placed where the user actually pointed.
+
+New leads go to the **top** of New, not the bottom. The whole product argument
+is that response time decides who wins the job, so the newest enquiry has to be
+the first thing an owner sees.
+
+Converting a lead keeps it. The lead is the record of *how* a customer was won —
+which source, how long it took — and the analytics funnel needs it. It gains a
+`customerId` and moves to Won.
+
+### Usage metering
+
+Lead creation is metered against the plan's monthly allowance
+(`src/lib/billing/usage.ts`). Counters are rows keyed on
+(organization, metric, month), not `SELECT count(*)`: a FREE plan allows five
+leads *per month*, and counting rows would quietly turn that into "five at a
+time" the moment one is deleted. The month is the row key, so a period rolls
+over without a scheduled job.
+
+A past-due or cancelled subscription falls back to FREE rather than locking the
+account. Locking someone out of their own customer list over a failed card turns
+a billing problem into a cancellation.
+
+---
+
 ## Multi-tenancy
 
 Every business's rows live in the same tables, separated by `organizationId`.
@@ -192,6 +234,24 @@ What it provides:
 | Complete a password reset | `POST /api/auth/reset-password` |
 | Confirm an email address | `POST /api/auth/verify-email` |
 | Sign out on every device | `POST /api/auth/sign-out-everywhere` |
+
+### Leads and customers
+
+| Operation | Route |
+| --- | --- |
+| List leads (filter, search, paginate) | `GET /api/leads` |
+| Create a lead | `POST /api/leads` |
+| Read one lead with its timeline | `GET /api/leads/[id]` |
+| Update a lead | `PATCH /api/leads/[id]` |
+| Delete a lead (ADMIN) | `DELETE /api/leads/[id]` |
+| Move a card on the board | `PATCH /api/leads/[id]/move` |
+| Add a timeline note | `POST /api/leads/[id]/notes` |
+| Convert to a customer | `POST /api/leads/[id]/convert` |
+| List customers | `GET /api/customers` |
+| Create a customer | `POST /api/customers` |
+| Read one customer with full history | `GET /api/customers/[id]` |
+| Update a customer | `PATCH /api/customers/[id]` |
+| Delete a customer (ADMIN) | `DELETE /api/customers/[id]` |
 
 Security properties worth knowing about:
 
@@ -347,11 +407,15 @@ jobflow/
 ├── src/
 │   ├── app/
 │   │   ├── (app)/                 signed-in shell; authorises in its layout
-│   │   │   └── dashboard/
+│   │   │   ├── customers/         list and full CRM detail
+│   │   │   ├── dashboard/
+│   │   │   └── leads/             pipeline board, new, detail
 │   │   ├── (auth)/                login, signup, password reset, verification
 │   │   ├── api/
 │   │   │   ├── auth/              signup, login, logout, me, reset, verify
-│   │   │   └── health/            liveness plus a real database round-trip
+│   │   │   ├── customers/         list, create, read, update, delete
+│   │   │   ├── health/            liveness plus a real database round-trip
+│   │   │   └── leads/             list, create, move, convert, notes
 │   │   ├── legal/                 terms, privacy
 │   │   ├── error.tsx              error boundary
 │   │   ├── not-found.tsx
@@ -361,6 +425,7 @@ jobflow/
 │   ├── components/
 │   │   ├── auth/                  sign-in, sign-up, reset, verify forms
 │   │   ├── layout/                sidebar, bottom nav, top bar, nav map
+│   │   ├── leads/                 pipeline board, card, actions, new form
 │   │   ├── legal/
 │   │   └── ui/                    Button, Card, Field, Alert, Badge,
 │   │                              StatCard, EmptyState, Skeleton, Toast
@@ -368,8 +433,10 @@ jobflow/
 │   │   ├── analytics/summary.ts   dashboard figures, one parallel burst
 │   │   ├── api/                   errors, handler, response, rate-limit
 │   │   ├── auth/                  session, context, password, tokens, emails
-│   │   ├── billing/plans.ts       plans and limits, defined once
+│   │   ├── billing/               plans and limits, usage metering
+│   │   ├── customers/repository.ts CRM reads and rollups
 │   │   ├── db/                    client + tenant isolation
+│   │   ├── leads/                 pipeline definition, ordering, repository
 │   │   ├── email/
 │   │   ├── organizations/         workspace provisioning
 │   │   ├── services/templates.ts  starter catalogue per trade
@@ -424,9 +491,10 @@ To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 npm test
 ```
 
-125 tests covering tenant isolation, session tokens and revocation, the
-redirect-loop regression, money and margin arithmetic, request validation, plan
-limits, rate limiting, workspace slugs and the service catalogue.
+147 tests covering tenant isolation, session tokens and revocation, the
+redirect-loop regression, pipeline ordering and respacing, plan resolution,
+money and margin arithmetic, request validation, plan limits, rate limiting,
+workspace slugs and the service catalogue.
 
 The most important file is `tests/tenant-isolation.test.ts`. Isolation is the one
 property whose failure is unrecoverable — a customer list shown to the wrong

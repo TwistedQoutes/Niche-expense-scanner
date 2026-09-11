@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 import { Alert } from '@/components/ui/Alert';
+import { Button } from '@/components/ui/Button';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StatCard } from '@/components/ui/StatCard';
@@ -32,6 +34,10 @@ export default async function DashboardPage() {
             Where every customer is, right now.
           </p>
         </div>
+
+        <Link href="/leads/new">
+          <Button size="sm">New lead</Button>
+        </Link>
       </div>
 
       {auth.organization.onboardedAt === null ? (
@@ -50,9 +56,20 @@ export default async function DashboardPage() {
             value={String(summary.leads.total)}
             hint="this month"
             deltaPercent={summary.leads.deltaPercent}
+            href="/leads"
           />
-          <StatCard label="New leads" value={String(summary.leads.new)} hint="awaiting contact" />
-          <StatCard label="Qualified" value={String(summary.leads.qualified)} hint="ready to quote" />
+          <StatCard
+            label="New leads"
+            value={String(summary.leads.new)}
+            hint="awaiting contact"
+            href="/leads"
+          />
+          <StatCard
+            label="Qualified"
+            value={String(summary.leads.qualified)}
+            hint="ready to quote"
+            href="/leads"
+          />
           <StatCard
             label="Quotes sent"
             value={String(summary.quotes.sent)}
@@ -90,17 +107,35 @@ export default async function DashboardPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader title="Recent leads" description="Newest first" />
+          <CardHeader
+            title="Recent leads"
+            description="Newest first"
+            action={
+              <Link href="/leads" className="text-brand-700 dark:text-brand-400 text-sm font-medium">
+                View all
+              </Link>
+            }
+          />
           {summary.recentLeads.length === 0 ? (
             <EmptyState
               title="No leads yet"
               description="They will appear here the moment someone fills in your intake form or you add one by hand."
+              action={
+                <Link href="/leads/new">
+                  <Button size="sm" variant="secondary">
+                    Add a lead
+                  </Button>
+                </Link>
+              }
             />
           ) : (
             <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {summary.recentLeads.map((lead) => (
                 <li key={lead.id}>
-                  <div className="flex items-center justify-between gap-3 px-4 py-3">
+                  <Link
+                    href={`/leads/${lead.id}`}
+                    className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                  >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
                         {lead.name}
@@ -114,7 +149,7 @@ export default async function DashboardPage() {
                         ? '—'
                         : formatCentsCompact(lead.estimatedValueCents, currency)}
                     </span>
-                  </div>
+                  </Link>
                 </li>
               ))}
             </ul>
