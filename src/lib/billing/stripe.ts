@@ -32,8 +32,3 @@ export function getStripe(): Stripe | null {
 export function billingEnabled(): boolean {
   return getStripe() !== null;
 }
-
-/** Test seam. */
-export function __resetStripe(): void {
-  cached = undefined;
-}

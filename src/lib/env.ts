@@ -106,9 +106,32 @@ export function getEnv(): ServerEnv {
   return cached;
 }
 
-/** Test seam: forces the environment to be re-read and re-validated. */
-export function __resetEnv(): void {
-  cached = null;
-}
+/**
+ * Display-only configuration, read without validation.
+ *
+ * `getEnv()` is strict on purpose: a missing `DATABASE_URL` should stop the
+ * server, loudly. But that strictness is wrong for a statically rendered page
+ * that only needs a support address or a price label — those have sensible
+ * defaults, contain no secrets, and demanding a database URL to render the
+ * terms of service would make the build depend on production credentials.
+ *
+ * So: two readers. This one never throws and is safe at build time; `getEnv()`
+ * stays strict for anything that actually touches a service.
+ */
+export type PublicConfig = {
+  supportEmail: string;
+  priceLabel: string;
+  trialDays: number;
+  appUrl: string;
+};
 
-export const isProduction = () => getEnv().NODE_ENV === 'production';
+export function getPublicConfig(): PublicConfig {
+  const trialDays = Number.parseInt(process.env.TRIAL_DAYS ?? '', 10);
+
+  return {
+    supportEmail: process.env.SUPPORT_EMAIL || 'support@example.com',
+    priceLabel: process.env.PRICE_LABEL || '$7/month',
+    trialDays: Number.isFinite(trialDays) && trialDays >= 0 ? trialDays : 14,
+    appUrl: process.env.APP_URL || 'http://localhost:3000',
+  };
+}

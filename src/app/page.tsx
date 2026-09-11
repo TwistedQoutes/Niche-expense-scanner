@@ -5,8 +5,15 @@ import { Button } from '@/components/ui/Button';
 import { getCurrentUser } from '@/lib/auth/current-user';
 import { CATEGORY_LIST } from '@/lib/categories/taxonomy';
 import { describePrice } from '@/lib/billing/price';
-import { getEnv } from '@/lib/env';
+import { getPublicConfig } from '@/lib/env';
 import { storageEnabled } from '@/lib/storage';
+
+/**
+ * Never prerendered: it redirects on the session, and its privacy wording
+ * depends on whether *this deployment* retains images. Baking either into a
+ * build artefact would make the page lie.
+ */
+export const dynamic = 'force-dynamic';
 
 export default async function LandingPage() {
   // Signed-in artists have no use for the pitch.
@@ -15,7 +22,7 @@ export default async function LandingPage() {
   // The privacy claim is only as strong as what this deployment actually does.
   const canStoreImages = storageEnabled();
   const priceLabel = describePrice();
-  const trialDays = getEnv().TRIAL_DAYS;
+  const trialDays = getPublicConfig().trialDays;
 
   const showcased = CATEGORY_LIST.filter((category) => category.id !== 'OTHER').slice(0, 9);
 

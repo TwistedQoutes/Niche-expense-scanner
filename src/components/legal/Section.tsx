@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { getEnv } from '@/lib/env';
+import { getPublicConfig } from '@/lib/env';
 
 /** The date the legal text last changed. Update it when you edit the wording. */
 export const LAST_UPDATED = '10 September 2026';
@@ -21,7 +21,7 @@ export function Section({ title, children }: { title: string; children: ReactNod
  * an address nobody reads is worse than no address at all.
  */
 export function ContactEmail() {
-  const address = getEnv().SUPPORT_EMAIL;
+  const address = getPublicConfig().supportEmail;
   return (
     <a href={`mailto:${address}`} className="text-brand-600 dark:text-brand-400 hover:underline">
       {address}
