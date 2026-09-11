@@ -15,6 +15,51 @@ export const MAX_EXPENSE_LINES = 12;
 
 export const PASSWORD_MIN_LENGTH = 10;
 
+/**
+ * Control characters that must never reach the database.
+ *
+ * Postgres rejects NUL (0x00) inside a text value outright, so an unsanitised
+ * string containing one does not fail validation — it crashes the query, and
+ * the request 500s. Any client can trigger that with a single byte, which makes
+ * it both a robustness bug and a cheap way to fill someone's error log.
+ *
+ * The other C0 controls are stripped for the same reason they are stripped from
+ * CSV cells: they are invisible, serve no purpose in a merchant name, and make
+ * stored text behave unpredictably wherever it is later displayed.
+ *
+ * Tab, newline and carriage return are kept — OCR text and notes are legitimately
+ * multi-line.
+ */
+const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+
+/** Every line break and control character removed: for single-line fields. */
+function singleLineText(max: number, message?: string) {
+  return z
+    .string()
+    .transform((value) => value.replace(CONTROL_CHARACTERS, '').replace(/[\r\n\t]+/g, ' ').trim())
+    .pipe(z.string().max(max, message));
+}
+
+/** Control characters removed, line breaks preserved: for notes and OCR text. */
+function multiLineText(max: number, message?: string) {
+  return z
+    .string()
+    .transform((value) => value.replace(CONTROL_CHARACTERS, '').trim())
+    .pipe(z.string().max(max, message));
+}
+
+/**
+ * A database id, as it comes back to us in a pagination cursor.
+ *
+ * Shape-checked rather than looked up: a cursor that is merely unknown is
+ * harmless (Prisma returns an empty page), but one containing a NUL byte
+ * reaches Postgres and crashes the query.
+ */
+const idSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{1,64}$/, 'That pagination cursor is not valid.');
+
+
 const emailSchema = z
   .string()
   .trim()
@@ -36,14 +81,21 @@ const passwordSchema = z
 export const signupSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
-  studioName: z.string().trim().max(120, 'That name is too long.').optional().or(z.literal('')),
+  studioName: singleLineText(120, 'That name is too long.').optional().or(z.literal('')),
 });
 
 export const loginSchema = z.object({
   email: emailSchema,
-  // Not `passwordSchema`: rejecting a short password at login would tell an
-  // attacker about the policy and leaks nothing useful to a legitimate user.
-  password: z.string().min(1, 'Enter your password.').max(200),
+  // The *minimum* is deliberately not enforced here: rejecting a short password
+  // at login would advertise the policy to an attacker and helps no one.
+  //
+  // The maximum is enforced, and must match signup's. bcrypt ignores anything
+  // past 72 bytes, so a laxer limit here meant "correct password + any trailing
+  // junk" authenticated successfully. Not exploitable — signup caps stored
+  // passwords at 72, so an attacker still needs the whole secret — but it is
+  // surprising behaviour, and surprising authentication code is how real holes
+  // get built on top.
+  password: z.string().min(1, 'Enter your password.').max(72),
 });
 
 const categorySchema = z.enum(CATEGORY_IDS);
@@ -66,7 +118,7 @@ const dateOnlySchema = z
 
 /** One category's share of a receipt. */
 export const expenseLineSchema = z.object({
-  label: z.string().trim().max(160, 'That description is too long.').nullable().optional(),
+  label: singleLineText(160, 'That description is too long.').nullable().optional(),
   amountCents: z
     .number()
     .int('Amounts must be a whole number of cents.')
@@ -99,14 +151,16 @@ const currencySchema = z
   .regex(/^[A-Z]{3}$/, 'Currency must be a 3-letter code.');
 
 const expenseFields = {
-  merchant: z.string().trim().min(1, 'Who was this paid to?').max(120, 'That name is too long.'),
+  merchant: singleLineText(120, 'That name is too long.').pipe(
+    z.string().min(1, 'Who was this paid to?'),
+  ),
   amountCents: amountCentsSchema,
   taxCents: z.number().int().min(0).max(MAX_AMOUNT_CENTS).nullable().optional(),
   currency: currencySchema,
   spentAt: dateOnlySchema,
-  notes: z.string().trim().max(500, 'Notes are limited to 500 characters.').nullable().optional(),
+  notes: multiLineText(500, 'Notes are limited to 500 characters.').nullable().optional(),
   /** Full OCR text, kept for re-parsing. Capped so a giant paste cannot bloat a row. */
-  rawText: z.string().max(20_000).nullable().optional(),
+  rawText: multiLineText(20_000).nullable().optional(),
   lines: linesSchema,
 };
 
@@ -184,10 +238,9 @@ export const updateSettingsSchema = z
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update.');
 
 export const parseReceiptSchema = z.object({
-  rawText: z
-    .string()
-    .min(1, 'No text was recognised in that image.')
-    .max(20_000, 'That receipt is unexpectedly long.'),
+  rawText: multiLineText(20_000, 'That receipt is unexpectedly long.').pipe(
+    z.string().min(1, 'No text was recognised in that image.'),
+  ),
 });
 
 export const monthQuerySchema = z
@@ -197,8 +250,8 @@ export const monthQuerySchema = z
 export const listExpensesQuerySchema = z.object({
   month: monthQuerySchema.optional(),
   category: categorySchema.optional(),
-  search: z.string().trim().max(120).optional(),
-  cursor: z.string().max(64).optional(),
+  search: singleLineText(120).optional(),
+  cursor: idSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 

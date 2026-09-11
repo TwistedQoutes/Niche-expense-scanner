@@ -153,3 +153,42 @@ export function apportionCents(totalCents: number, weights: readonly number[]): 
 export function splitBalances(totalCents: number, partCents: readonly number[]): boolean {
   return partCents.reduce((sum, part) => sum + part, 0) === totalCents;
 }
+
+/** One currency's share of a set of receipts. */
+export type CurrencyTotals = {
+  currency: string;
+  totalCents: number;
+  taxCents: number;
+  receipts: number;
+};
+
+/**
+ * Totals a set of receipts, grouped by currency, largest first.
+ *
+ * Grouping is not a nicety. Cents are only comparable within one currency, so
+ * a single sum across a mixed month produces a figure that is not money at
+ * all — and it would be shown on the dashboard and written into the CSV an
+ * artist hands their accountant.
+ */
+export function totalsByCurrency(
+  receipts: readonly { currency: string; amountCents: number; taxCents: number | null }[],
+): CurrencyTotals[] {
+  const totals = new Map<string, CurrencyTotals>();
+
+  for (const receipt of receipts) {
+    const running = totals.get(receipt.currency) ?? {
+      currency: receipt.currency,
+      totalCents: 0,
+      taxCents: 0,
+      receipts: 0,
+    };
+    running.totalCents += receipt.amountCents;
+    running.taxCents += receipt.taxCents ?? 0;
+    running.receipts += 1;
+    totals.set(receipt.currency, running);
+  }
+
+  return [...totals.values()].sort(
+    (a, b) => b.totalCents - a.totalCents || a.currency.localeCompare(b.currency),
+  );
+}

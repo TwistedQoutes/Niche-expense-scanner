@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { createExpenseSchema, updateExpenseSchema } from '@/lib/validation';
+import {
+  createExpenseSchema,
+  listExpensesQuerySchema,
+  updateExpenseSchema,
+} from '@/lib/validation';
 
 const base = {
   merchant: 'Kingpin Tattoo Supply',
@@ -157,5 +161,103 @@ describe('updateExpenseSchema — no field is injected that the caller did not s
     const result = createExpenseSchema.safeParse({ ...base, lines: [line(14305)] });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.currency).toBe('USD');
+  });
+});
+
+describe('control characters never reach the database', () => {
+  /**
+   * Regression test for a crash, not a style rule.
+   *
+   * Postgres rejects NUL (0x00) inside a text value, so an unsanitised string
+   * containing one did not fail validation — it crashed the query and returned
+   * a 500. Six endpoints were affected, and any client could trigger it with a
+   * single byte.
+   */
+  const NUL = String.fromCharCode(0);
+  const BELL = String.fromCharCode(7);
+
+  it('strips NUL from a merchant name', () => {
+    const result = createExpenseSchema.safeParse({
+      ...base,
+      merchant: `King${NUL}pin`,
+      lines: [line(14305)],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.merchant).toBe('Kingpin');
+  });
+
+  it('strips other invisible control characters too', () => {
+    const result = createExpenseSchema.safeParse({
+      ...base,
+      merchant: `Tat${BELL}Soul`,
+      lines: [line(14305)],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.merchant).toBe('TatSoul');
+  });
+
+  it('strips NUL from notes and line labels', () => {
+    const result = createExpenseSchema.safeParse({
+      ...base,
+      notes: `some${NUL}note`,
+      lines: [{ ...line(14305), label: `ink${NUL}` }],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.notes).toBe('somenote');
+      expect(result.data.lines[0]?.label).toBe('ink');
+    }
+  });
+
+  it('collapses line breaks in single-line fields but keeps them in notes', () => {
+    const result = createExpenseSchema.safeParse({
+      ...base,
+      merchant: 'King\npin',
+      notes: 'line one\nline two',
+      lines: [line(14305)],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.merchant).toBe('King pin');
+      // OCR text and notes are legitimately multi-line.
+      expect(result.data.notes).toBe('line one\nline two');
+    }
+  });
+
+  it('rejects a merchant that is only control characters, rather than storing empty', () => {
+    const result = createExpenseSchema.safeParse({
+      ...base,
+      merchant: NUL + NUL,
+      lines: [line(14305)],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('checks length after stripping, so padding cannot smuggle past the cap', () => {
+    const result = createExpenseSchema.safeParse({
+      ...base,
+      merchant: NUL.repeat(500) + 'Kingpin',
+      lines: [line(14305)],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.merchant).toBe('Kingpin');
+  });
+});
+
+describe('listExpensesQuerySchema — pagination cursor', () => {
+  it('accepts an id-shaped cursor', () => {
+    const result = listExpensesQuerySchema.safeParse({ cursor: 'cmtwcrqvw0004n97d4b0z6yqn' });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a cursor containing a NUL byte rather than passing it to Postgres', () => {
+    const result = listExpensesQuerySchema.safeParse({ cursor: String.fromCharCode(0) });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects cursors with path or quote characters', () => {
+    for (const cursor of ['../../etc/passwd', "a' OR 1=1--", 'a b', 'a/b']) {
+      expect(listExpensesQuerySchema.safeParse({ cursor }).success).toBe(false);
+    }
   });
 });

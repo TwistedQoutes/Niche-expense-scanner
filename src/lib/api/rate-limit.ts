@@ -28,9 +28,22 @@ export type RateLimitRule = {
   windowSeconds: number;
 };
 
+/**
+ * Limits are per IP, and an IP is not a person.
+ *
+ * Mobile carriers put thousands of subscribers behind one address, and a studio
+ * or a convention hall is a single address shared by everyone in it — which is
+ * precisely the population this app is sold to. Limits tight enough to feel
+ * safe on paper lock out a room full of legitimate artists, and a signup
+ * failure at that moment is a customer lost rather than an attack stopped.
+ *
+ * So these are set to the point where they still cost an attacker real time —
+ * 30 login attempts per 5 minutes against a 10-character minimum password is
+ * not a viable brute force — while leaving room for a shared connection.
+ */
 export const RATE_LIMITS = {
-  login: { name: 'login', limit: 8, windowSeconds: 300 },
-  signup: { name: 'signup', limit: 5, windowSeconds: 3600 },
+  login: { name: 'login', limit: 30, windowSeconds: 300 },
+  signup: { name: 'signup', limit: 20, windowSeconds: 3600 },
   parse: { name: 'parse', limit: 60, windowSeconds: 300 },
   write: { name: 'write', limit: 120, windowSeconds: 300 },
   export: { name: 'export', limit: 20, windowSeconds: 300 },

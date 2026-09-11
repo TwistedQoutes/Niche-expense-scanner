@@ -64,6 +64,15 @@ function detectCurrency(text: string): string {
 
 type AmountCandidate = { cents: number; hadSymbol: boolean };
 
+/**
+ * Ways a receipt writes "this money went the other way".
+ *
+ * AMOUNT_PATTERN starts at the digits, so a minus sign or an accounting
+ * bracket sits outside the match and has to be read from the surrounding text.
+ */
+const NEGATIVE_BEFORE = /[-−–—(]\s*$/;
+const NEGATIVE_AFTER = /^\s*(?:-|\)|CR\b)/i;
+
 /** Every money-shaped token on one line, left to right. */
 function extractAmounts(line: string): AmountCandidate[] {
   const found: AmountCandidate[] = [];
@@ -81,6 +90,16 @@ function extractAmounts(line: string): AmountCandidate[] {
           : null;
     if (raw === null) continue;
 
+    // A refund reads "TOTAL -45.00". Matching only the digits turned that into
+    // a 45.00 *expense* — a credit noted as a deduction, which is exactly the
+    // direction of error that gets an artist in trouble. An amount we can see
+    // is negative is dropped: this product has no way to represent one, and no
+    // suggestion at all is better than a confident wrong sign.
+    const negative =
+      NEGATIVE_BEFORE.test(line.slice(0, match.index)) ||
+      NEGATIVE_AFTER.test(line.slice(match.index + match[0].length));
+    if (negative) continue;
+
     const cents = parseAmountToCents(raw);
     if (cents === null || cents <= 0 || cents > MAX_AMOUNT_CENTS) continue;
 
@@ -88,6 +107,15 @@ function extractAmounts(line: string): AmountCandidate[] {
   }
 
   return found;
+}
+
+/** True when the text reads like a refund or credit note rather than a purchase. */
+export function looksLikeRefund(rawText: string): boolean {
+  const wording = /\b(?:refund(?:ed)?|credit\s*note|store\s+credit|returned\s+(?:to|for))\b/i;
+  // A total that is written negative, however the till spells it.
+  const negativeTotal = /\b(?:total|amount\s+due|balance)\b[^\n]*?(?:[-−–—]\s*(?:[$£€]\s*)?\d|\(\s*(?:[$£€]\s*)?\d[\d,]*\.\d{2}\s*\)|\d[\d,]*\.\d{2}\s*-)/i;
+
+  return wording.test(rawText) || negativeTotal.test(rawText);
 }
 
 /** Split into trimmed, non-empty lines with the original casing preserved. */

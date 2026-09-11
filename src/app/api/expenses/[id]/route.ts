@@ -27,7 +27,7 @@ export const PATCH = withRoute(async (request: Request, context: RouteContext) =
 
   const input = parsed.data;
 
-  const data: Prisma.ExpenseUpdateManyMutationInput = {};
+  const data: Prisma.ExpenseUpdateInput = {};
   if (input.merchant !== undefined) data.merchant = input.merchant;
   if (input.amountCents !== undefined) data.amountCents = input.amountCents;
   if (input.taxCents !== undefined) data.taxCents = input.taxCents;
@@ -39,20 +39,36 @@ export const PATCH = withRoute(async (request: Request, context: RouteContext) =
     data.spentAt = spentAt;
   }
 
-  // `updateMany` with the userId in the filter means another artist's id in the
-  // URL updates nothing rather than 404-ing after a successful read.
-  const result = await prisma.expense.updateMany({ where: { id, userId: user.id }, data });
-  if (result.count === 0) throw notFound('That expense no longer exists.');
+  // The whole update runs in one interactive transaction, and it starts by
+  // taking a row lock on the expense.
+  //
+  // Without the lock, two concurrent edits of the same receipt interleave: each
+  // deletes the lines it can see and inserts its own, and both sets survive.
+  // That produces a receipt whose parts do not add up to its total — the exact
+  // invariant the rest of the code works to preserve. `FOR UPDATE` makes the
+  // second request wait for the first to commit, so the loser overwrites the
+  // winner cleanly instead of merging with it.
+  //
+  // The lock is scoped by userId as well as id, so another artist's id in the
+  // URL locks nothing and falls through to the 404 below.
+  const expense = await prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM expenses WHERE id = ${id} AND "userId" = ${user.id} FOR UPDATE
+    `;
+    if (locked.length === 0) return null;
 
-  // Lines are replaced wholesale rather than diffed: the split is a single
-  // decision, and a partial application of it could leave the parts not adding
-  // up to the total. The delete and the re-create share one transaction so
-  // that window never exists.
-  if (input.lines !== undefined) {
-    const lines = input.lines;
-    await prisma.$transaction([
-      prisma.expenseLine.deleteMany({ where: { expenseId: id } }),
-      prisma.expenseLine.createMany({
+    if (Object.keys(data).length > 0) {
+      await tx.expense.update({ where: { id }, data });
+    }
+
+    // Lines are replaced wholesale rather than diffed: the split is a single
+    // decision, and applying half of it would leave the parts disagreeing with
+    // the total.
+    if (input.lines !== undefined) {
+      const lines = input.lines;
+
+      await tx.expenseLine.deleteMany({ where: { expenseId: id } });
+      await tx.expenseLine.createMany({
         data: lines.map((line, position) => ({
           expenseId: id,
           label: line.label ?? null,
@@ -65,14 +81,15 @@ export const PATCH = withRoute(async (request: Request, context: RouteContext) =
           categorySource: line.categorySource,
           position,
         })),
-      }),
-    ]);
-  }
+      });
+    }
 
-  const expense = await prisma.expense.findFirst({
-    where: { id, userId: user.id },
-    include: { lines: { orderBy: { position: 'asc' } } },
+    return tx.expense.findFirst({
+      where: { id, userId: user.id },
+      include: { lines: { orderBy: { position: 'asc' } } },
+    });
   });
+
   if (!expense) throw notFound('That expense no longer exists.');
 
   return jsonOk<{ expense: ExpenseDto }>({ expense: serialiseExpense(expense) });

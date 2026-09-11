@@ -40,13 +40,29 @@ export type ExpenseDto = {
   hasImage: boolean;
 };
 
+export type CurrencyTotal = {
+  currency: string;
+  totalCents: number;
+  taxCents: number;
+  count: number;
+};
+
 export type MonthSummary = {
   month: string;
+  /**
+   * The headline figures, in `currency` only.
+   *
+   * Money in different currencies does not add up, so these deliberately
+   * describe a single currency rather than a meaningless cross-currency sum.
+   * Anything the artist spent in another currency is in `byCurrency`.
+   */
   totalCents: number;
   taxCents: number;
   count: number;
   byCategory: { category: CategoryId; totalCents: number; count: number }[];
   currency: string;
+  /** Every currency used this month, largest first. Length > 1 means mixed. */
+  byCurrency: CurrencyTotal[];
 };
 
 export type ExpenseListResponse = {
@@ -77,6 +93,11 @@ export type ParseReceiptResponse = {
     | null;
   /** True when at least one field needs the artist's eyes before saving. */
   needsReview: boolean;
+  /**
+   * A specific reason the scan needs attention, when there is one worth
+   * naming. `needsReview` says "look"; this says what to look at.
+   */
+  notice: string | null;
 };
 
 export type UserDto = {

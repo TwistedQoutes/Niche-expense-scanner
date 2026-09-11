@@ -4,7 +4,7 @@ import { CATEGORY_IDS, isCategoryId, type CategoryId } from '@/lib/categories/ta
 import { monthRange, type MonthKey } from '@/lib/dates';
 import { prisma } from '@/lib/db';
 import { serialiseExpense } from '@/lib/expenses/serialise';
-import type { ExpenseDto, MonthSummary } from '@/types';
+import type { CurrencyTotal, ExpenseDto, MonthSummary } from '@/types';
 
 export type ExpenseFilters = {
   month?: MonthKey;
@@ -79,16 +79,41 @@ export async function summariseMonth(userId: string, month: MonthKey): Promise<M
   // Totals come from the expense rows (so "receipts" counts receipts, not
   // parts), while the category breakdown comes from the lines. Both are
   // aggregated in the database, and the sum invariant guarantees they agree.
-  const [totals, grouped, currencyRow] = await Promise.all([
-    prisma.expense.aggregate({ where, _sum: { amountCents: true, taxCents: true }, _count: true }),
-    prisma.expenseLine.groupBy({
-      by: ['category'],
-      where: { expense: where },
-      _sum: { amountCents: true },
-      _count: true,
-    }),
-    prisma.expense.findFirst({ where, select: { currency: true }, orderBy: { createdAt: 'desc' } }),
-  ]);
+  //
+  // Totals are grouped by currency because they have to be: adding £64.99 to
+  // $123.40 produces a number that is not money in any currency, and it would
+  // be shown on the dashboard and exported to an accountant as if it were.
+  const currencyGroups = await prisma.expense.groupBy({
+    by: ['currency'],
+    where,
+    _sum: { amountCents: true, taxCents: true },
+    _count: true,
+  });
+
+  const byCurrency: CurrencyTotal[] = currencyGroups
+    .map((group) => ({
+      currency: group.currency,
+      totalCents: group._sum.amountCents ?? 0,
+      taxCents: group._sum.taxCents ?? 0,
+      count: group._count,
+    }))
+    // Largest first, so the headline figures describe the currency the artist
+    // actually works in rather than whichever row sorted first.
+    .sort((a, b) => b.totalCents - a.totalCents || a.currency.localeCompare(b.currency));
+
+  const primary = byCurrency[0] ?? null;
+
+  // Scoped to the primary currency for the same reason as the totals: a
+  // category row reading "Ink & Pigments 198.39" would be adding two
+  // currencies together behind a single symbol.
+  const grouped = primary
+    ? await prisma.expenseLine.groupBy({
+        by: ['category'],
+        where: { expense: { ...where, currency: primary.currency } },
+        _sum: { amountCents: true },
+        _count: true,
+      })
+    : [];
 
   const byCategory = grouped
     .map((group) => ({
@@ -104,29 +129,31 @@ export async function summariseMonth(userId: string, month: MonthKey): Promise<M
 
   return {
     month,
-    totalCents: totals._sum.amountCents ?? 0,
-    taxCents: totals._sum.taxCents ?? 0,
-    count: totals._count,
+    totalCents: primary?.totalCents ?? 0,
+    taxCents: primary?.taxCents ?? 0,
+    count: primary?.count ?? 0,
     byCategory,
-    currency: currencyRow?.currency ?? 'USD',
+    currency: primary?.currency ?? 'USD',
+    byCurrency,
   };
 }
 
 /** Months that actually contain expenses, so the filter never offers an empty one. */
 export async function monthsWithExpenses(userId: string): Promise<MonthKey[]> {
-  const rows = await prisma.expense.findMany({
-    where: { userId },
-    select: { spentAt: true },
-    orderBy: { spentAt: 'desc' },
-    // A generous cap: enough for years of history, bounded so a pathological
-    // account cannot pull an unbounded result set into memory.
-    take: 5_000,
-  });
+  // Distinct months are computed in the database rather than by reading every
+  // row and de-duplicating in JavaScript. The answer is at most a couple of
+  // dozen strings either way, but the old version transferred one row per
+  // receipt to produce them — on every dashboard load, growing with the
+  // account, for a value that never gets bigger.
+  //
+  // `spentAt` is TIMESTAMP without time zone holding UTC midnight, so `to_char`
+  // reads the stored day directly with no zone conversion to get wrong.
+  const rows = await prisma.$queryRaw<{ month: string }[]>`
+    SELECT DISTINCT to_char("spentAt", 'YYYY-MM') AS month
+    FROM expenses
+    WHERE "userId" = ${userId}
+    ORDER BY month DESC
+  `;
 
-  const months = new Set<MonthKey>();
-  for (const row of rows) {
-    months.add(row.spentAt.toISOString().slice(0, 7));
-  }
-
-  return [...months].sort().reverse();
+  return rows.map((row) => row.month);
 }

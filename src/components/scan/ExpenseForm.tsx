@@ -264,7 +264,8 @@ export function ExpenseForm({
 
       {scan?.needsReview ? (
         <Alert tone="warning" title="Check these before saving">
-          The scan wasn&rsquo;t certain about everything. Anything marked below is worth a glance.
+          {scan.notice ??
+            'The scan wasn’t certain about everything. Anything marked below is worth a glance.'}
         </Alert>
       ) : null}
 

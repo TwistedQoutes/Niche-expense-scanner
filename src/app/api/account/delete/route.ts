@@ -8,7 +8,7 @@ import { clearSessionCookie } from '@/lib/auth/session';
 import { getStripe } from '@/lib/billing/stripe';
 import { prisma } from '@/lib/db';
 import { deleteAccountSchema } from '@/lib/validation';
-import { isValidImageKey, resolveStorage } from '@/lib/storage';
+import { purgeStoredImages } from '@/lib/storage/purge';
 
 export const runtime = 'nodejs';
 
@@ -43,21 +43,9 @@ export const POST = withRoute(async (request) => {
     throw validationFailed({ password: 'That password is not correct.' });
   }
 
-  // 1. Stored images, while we can still find them.
-  const storage = resolveStorage();
-  if (storage) {
-    const withImages = await prisma.expense.findMany({
-      where: { userId: user.id, imageKey: { not: null } },
-      select: { imageKey: true },
-    });
-
-    for (const expense of withImages) {
-      if (!expense.imageKey || !isValidImageKey(expense.imageKey)) continue;
-      await storage.delete(expense.imageKey).catch((error: unknown) => {
-        console.error('[account-delete] could not remove a stored image', error);
-      });
-    }
-  }
+  // 1. Stored images, while the rows that name them still exist. Batched, so an
+  //    account with years of receipts does not have to fit in memory at once.
+  await purgeStoredImages(user.id);
 
   // 2. Stop the billing relationship, so a deleted account is never charged again.
   const stripe = getStripe();

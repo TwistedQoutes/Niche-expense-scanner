@@ -18,17 +18,24 @@ export function ConfidenceBadge({
   className?: string;
 }) {
   if (missing) {
+    // Short enough to sit in a half-width column on a phone: the longer wording
+    // this used to carry wrapped, and a rounded pill split across two lines
+    // renders as a broken shape. `inline-block` keeps the background whole if a
+    // narrower screen wraps it anyway.
     return (
       <span
         className={cn(
-          'rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-300',
+          'inline-block rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-300',
           className,
         )}
       >
-        Couldn&rsquo;t read this — please fill it in
+        Couldn&rsquo;t read this
       </span>
     );
   }
+
+  // The same treatment for the graded labels, which are short but share a row
+  // with field text that can push them onto a second line.
 
   const tone =
     confidence >= 0.75
@@ -41,7 +48,7 @@ export function ConfidenceBadge({
 
   return (
     <span
-      className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', tone, className)}
+      className={cn('inline-block rounded-full px-2 py-0.5 text-[11px] font-medium', tone, className)}
       title={`Scanner confidence: ${Math.round(confidence * 100)}%`}
     >
       {label}
