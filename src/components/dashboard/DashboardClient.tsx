@@ -173,6 +173,12 @@ export function DashboardClient({
 
   const isEmpty = data.expenses.length === 0;
 
+  // Every receipt in the month, across all currencies — see the heading below.
+  const receiptsThisMonth = data.summary.byCurrency.reduce(
+    (total, entry) => total + entry.count,
+    0,
+  );
+
   return (
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-3">
@@ -209,8 +215,14 @@ export function DashboardClient({
           <SummaryCards summary={data.summary} />
 
           <div className="flex items-center justify-between gap-3">
+            {/*
+              This heading labels the list below it, so it counts every receipt
+              in the month. `summary.count` deliberately covers only the
+              headline currency — using it here would have said "2 receipts"
+              above a list of three.
+            */}
             <h2 className="text-sm font-semibold">
-              {data.summary.count} receipt{data.summary.count === 1 ? '' : 's'}
+              {receiptsThisMonth} receipt{receiptsThisMonth === 1 ? '' : 's'}
             </h2>
             <ExportButton month={month} />
           </div>
