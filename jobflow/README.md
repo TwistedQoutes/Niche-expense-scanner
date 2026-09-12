@@ -18,13 +18,15 @@ LEAD → AI QUALIFICATION → CUSTOMER → PROPERTY → ESTIMATE → QUOTE
 
 ## Where this is up to
 
-The build is phased. **Phases 1–9 are complete and verified**: project setup,
+The build is phased. **Phases 1–10 are complete and verified**: project setup,
 the full database schema, multi-tenancy, authentication, the dashboard shell,
 the lead pipeline and CRM, the services catalogue and pricing engine,
 professional quotes a customer can accept without an account, AI lead
 qualification, the messaging layer — a unified inbox, missed-call text-back,
-carrier-compliant opt-out and the automated follow-up engine — and scheduling:
-jobs, a calendar in the business's own timezone, and completion.
+carrier-compliant opt-out and the automated follow-up engine — scheduling with
+jobs and a calendar in the business's own timezone, and the repeat-business
+loop: tracked review requests, reactivation of lapsed customers, and the
+settings screen the rest of it depends on.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -37,10 +39,10 @@ jobs, a calendar in the business's own timezone, and completion.
 | 7 | AI lead qualification, AI responses | ✅ Done |
 | 8 | Email/SMS, Twilio, Resend, automated follow-up | ✅ Done |
 | 9 | Calendar, appointments, jobs | ✅ Done |
-| 10 | Review requests, customer reactivation | Next — triggers already fire |
-| 11 | Stripe billing, subscriptions, usage limits | Usage metering done |
+| 10 | Review requests, customer reactivation | ✅ Done |
+| 11 | Stripe billing, subscriptions, usage limits | Next — usage metering done |
 | 12 | Analytics, admin dashboard | Planned |
-| 13 | Landing page, onboarding, demo mode | Landing page done |
+| 13 | Landing page, onboarding, demo mode | Landing page and settings done |
 | 14 | Testing, security, performance, deployment | Ongoing |
 
 The navigation in `src/components/layout/navigation.ts` is the whole product map,
@@ -481,12 +483,9 @@ end, or pull tomorrow's first job onto today's list.
 checks both edge cases, a zone with no daylight saving, a zone on the other side
 of UTC, and a non-hour offset (`Asia/Kathmandu`, +05:45).
 
-**Known gap:** the organization's timezone is honoured everywhere, but nothing in
-the UI sets it yet — it defaults to `America/New_York`, so a business further west
-currently sees Eastern hours until the field is set directly. The settings screen
-that owns it lands with onboarding in Phase 13. `isValidTimeZone` rejects a name
-the runtime does not know, because a bad value would throw inside `Intl` on every
-calendar render — taking the page down rather than showing the wrong hour.
+The timezone is set under **Settings**, and `isValidTimeZone` rejects a name the
+runtime does not know — a bad value would throw inside `Intl` on every calendar
+render, taking the page down rather than showing the wrong hour.
 
 ### Double-booking is refused once, then allowed
 
@@ -536,6 +535,90 @@ slot back on the calendar, and stops any follow-up aimed at it.
 Appointments are cancelled, never deleted. The slot has to be freed, but "there was
 a visit here and it was called off" is what an owner needs when a customer asks why
 nobody came.
+
+---
+
+## Repeat business
+
+Two features, one argument: the cheapest job to win is one from somebody who has
+already paid you. Reviews win the next stranger; reactivation wins the same
+person again.
+
+### The review link is the one value that goes to every customer
+
+A business types it into Settings and the product texts it to everyone it ever
+works for, so it is validated harder than any other field — parsed rather than
+pattern-matched, and checked for the two things a regex over `\S+` waves through:
+
+- **Only http and https.** A `javascript:` URL in a link a customer taps from a
+  text message is script execution, not navigation.
+- **No embedded credentials.** `https://www.google.com@evil.example` reads as
+  Google to anyone skimming and resolves to evil.example.
+
+This is not mainly about a malicious owner. It is about a link pasted from
+somewhere odd, and about bounding what a compromised admin session could turn the
+business's own review texts into.
+
+The same check runs again at redirect time. A stored value can predate a rule or
+be written by hand, and the redirect is the moment it becomes a link a real
+customer follows — so that is where it is enforced, not only on the way in.
+
+### `/r/{token}` is a tracked link, and an unauthenticated one
+
+The customer has no account and no session; the token *is* the credential, and it
+identifies one review request and through it one organization — the same argument
+as the public quote page. So it is 128 bits of randomness, shape-checked before it
+reaches the database, and rate limited because it is a public endpoint that writes.
+
+An unknown token, a malformed one, and one whose stored link no longer passes
+validation all get the same answer: a redirect to the marketing page, with nothing
+said about which case it was. Someone walking the token space learns nothing, and
+a bad stored value is never reflected back — so it cannot become a redirect
+gadget. The response is a 303 (the request had a side effect) and carries
+`X-Robots-Tag: noindex`.
+
+Only the **first** tap is recorded. A customer who opens the link twice, or whose
+mail client prefetches it, has not changed their mind twice, and overwriting
+`clickedAt` would lose when they actually engaged.
+
+### Reactivation has to be able to happen twice
+
+`fireTrigger` is idempotent per (automation, subject) via a unique index, which is
+exactly right for a quote follow-up and exactly wrong for a seasonal reminder: the
+row outlives the run that created it, so a customer could be reactivated once in
+the lifetime of the workspace and never again.
+
+So reactivation passes `rearmFinishedRuns`, which re-arms a run that has
+**finished** and never one still in flight — restarting a chase already under way
+would text somebody twice. The row is reused rather than a second one inserted,
+which keeps the unique index and therefore the idempotency intact; the messages
+themselves stay in the conversation, which is the real record of what the customer
+received.
+
+Firing also pushes `nextServiceDueAt` a full window forward. Without that, a
+customer whose sequence finished while they were still overdue would be chased
+again on the very next pass, forever.
+
+A customer with no completed job is **new, not lapsed**. Chasing them as a former
+customer reads as a mistake, and it is the first thing a real customer list would
+expose.
+
+### The sweep runs daily, not minutely
+
+Who counts as lapsed changes by the day. `/api/cron/automations?sweep=1` is a
+second, slower schedule in `vercel.json`, and it only looks at workspaces with the
+reactivation automation actually enabled — so a business that has never turned it
+on costs nothing rather than one query per pass to throw the answer away. One
+workspace's bad data cannot stop another's sweep.
+
+### When it cannot work, it says so
+
+A review request with no link configured is skipped rather than sent with a dead
+link — a customer who tried and landed nowhere is worse than no ask at all. But
+silence looks like a broken feature, so the Reviews screen and Settings both say
+what is missing, and asking by hand refuses with the reason instead of a silent
+no-op. The automated path stays quiet; a person who pressed a button gets an
+answer.
 
 ---
 
@@ -687,16 +770,27 @@ What it provides:
 crew member's tap cannot be replayed out of a browser history. Scheduling takes a
 date and a time of day, never an instant — see [Scheduling](#scheduling).
 
+### Reviews and settings
+
+| Operation | Route |
+| --- | --- |
+| Review requests and their stats | `GET /api/reviews` |
+| Ask one customer for a review | `POST /api/reviews` |
+| The business's own details | `PATCH /api/settings` |
+
 ### Machine callers — no session
 
 | Operation | Route |
 | --- | --- |
 | Inbound texts and call status | `POST /api/webhooks/twilio` |
 | Run due automation steps | `POST /api/cron/automations` |
+| Also sweep for lapsed customers | `POST /api/cron/automations?sweep=1` |
+| A customer tapping a review link | `GET /r/[token]` |
 
-Neither takes a cookie. The webhook authenticates with Twilio's signature; the
-cron endpoint with a bearer `CRON_SECRET` compared in constant time, and returns
-501 rather than running when that is unset.
+None of these takes a cookie. The webhook authenticates with Twilio's signature;
+the cron endpoint with a bearer `CRON_SECRET` compared in constant time, and
+returns 501 rather than running when that is unset; `/r/[token]` is authenticated
+by the token itself — see [Repeat business](#repeat-business).
 
 Security properties worth knowing about:
 
@@ -830,6 +924,13 @@ That is the default, and it matters more here than anywhere else: every message
 costs money at the carrier, so a bug that sends a hundred texts should be a log,
 not a bill.
 
+### Reviews (no integration needed)
+
+Review requests need no third-party service — just the link customers should leave
+a review on, pasted into **Settings**. For Google that is the short link from the
+business profile's "Ask for reviews" panel; Yelp, Facebook and Angi links work the
+same way. Requests are skipped, not sent, while it is unset.
+
 ### Resend (email)
 
 ```bash
@@ -884,7 +985,9 @@ jobflow/
 │   │   │   ├── leads/             pipeline board, new, detail
 │   │   │   ├── messages/          unified inbox, thread with manual reply
 │   │   │   ├── pricing-settings/  defaults, catalogue, rules, calculator
-│   │   │   └── quotes/            list and detail
+│   │   │   ├── quotes/            list and detail
+│   │   │   ├── reviews/           requests, and who is worth getting back
+│   │   │   └── settings/          business details, timezone, review link
 │   │   ├── (auth)/                login, signup, password reset, verification
 │   │   ├── api/
 │   │   │   ├── ai/                qualify a lead
@@ -901,10 +1004,13 @@ jobflow/
 │   │   │   ├── pricing-rules/     list, create, update, delete
 │   │   │   ├── public/            unauthenticated quote view and response
 │   │   │   ├── quotes/            list, create, read, update, send
+│   │   │   ├── reviews/           list, and ask one customer
 │   │   │   ├── services/          list, create, update, delete
+│   │   │   ├── settings/          the business's own details
 │   │   │   └── webhooks/twilio/   inbound texts and call status
 │   │   ├── legal/                 terms, privacy
 │   │   ├── quote/[publicId]/      the customer's quote page — no session
+│   │   ├── r/[token]/             the tracked review link — no session
 │   │   ├── error.tsx              error boundary
 │   │   ├── not-found.tsx
 │   │   ├── globals.css            design tokens
@@ -917,6 +1023,8 @@ jobflow/
 │   │   ├── layout/                sidebar, bottom nav, top bar, nav map
 │   │   ├── leads/                 pipeline board, card, actions, AI panel
 │   │   ├── messaging/             reply box with a segment-cost counter
+│   │   ├── reviews/               the ask-for-a-review button
+│   │   ├── settings/              business details form
 │   │   ├── pricing/               defaults form, service editor, calculator
 │   │   ├── quotes/                send panel, customer response, quote-from-lead
 │   │   ├── legal/
@@ -936,6 +1044,7 @@ jobflow/
 │   │   ├── messaging/             send, inbound, opt-out, templates
 │   │   ├── pricing/               the pure calculation, and input resolution
 │   │   ├── quotes/                numbering, public scope, lifecycle
+│   │   ├── reviews/               requests, tracked clicks, reactivation
 │   │   ├── email/
 │   │   ├── organizations/         workspace provisioning
 │   │   ├── scheduling/            overlap rules, appointments, the calendar
@@ -997,6 +1106,12 @@ trapping, popover positioning) is needed.
   stranger's queue
 - **Revenue is incremented under a conditional update**, so a job completed twice
   is counted once
+- **A link the product will send to customers is parsed, not pattern-matched** —
+  http and https only, no embedded credentials — and re-checked at redirect time
+  rather than trusted because it passed validation when it was saved
+- **A tracked review link never reflects its stored target back** on failure, so a
+  bad value cannot become a redirect gadget; unknown, malformed and unsafe all get
+  the same answer
 
 To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 
@@ -1008,7 +1123,7 @@ To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 npm test
 ```
 
-376 tests covering tenant isolation, session tokens and revocation, the
+391 tests covering tenant isolation, session tokens and revocation, the
 redirect-loop regression, the AI guardrails and their false-positive behaviour,
 AI absence and bounded failure, quote expiry and response gating, public-id
 entropy, document numbering under a race, the pricing engine (including the
@@ -1016,8 +1131,9 @@ specification's own worked example, margin-versus-markup, rules, floors, tax and
 overrides), pipeline ordering and respacing, Twilio signature verification,
 carrier opt-out keywords, template rendering, inbound number resolution,
 timezone-aware booking across daylight-saving boundaries, appointment overlap,
-job state transitions, plan resolution, money arithmetic, request validation, plan
-limits, rate limiting, workspace slugs and the service catalogue.
+job state transitions, review-link and redirect-target safety, review token
+entropy, plan resolution, money arithmetic, request validation, plan limits, rate
+limiting, workspace slugs and the service catalogue.
 
 The most important file is `tests/tenant-isolation.test.ts`. Isolation is the one
 property whose failure is unrecoverable — a customer list shown to the wrong
@@ -1054,9 +1170,10 @@ to round-trip every hour across the two days a year the arithmetic is hard.
 6. Add the Stripe webhook endpoint at `https://yourdomain.com/api/stripe/webhook`
    and put its signing secret in `STRIPE_WEBHOOK_SECRET`.
 7. Set `CRON_SECRET` to a long random value to turn on automated follow-ups.
-   `vercel.json` schedules `/api/cron/automations`; the endpoint returns 501 while
-   the secret is unset, so follow-ups stay off until you deliberately enable them
-   rather than starting to text customers on first deploy.
+   `vercel.json` schedules `/api/cron/automations` minutely and
+   `/api/cron/automations?sweep=1` once a day for the reactivation sweep; the
+   endpoint returns 501 while the secret is unset, so follow-ups stay off until you
+   deliberately enable them rather than starting to text customers on first deploy.
 8. Check `https://yourdomain.com/api/health` — it should report
    `{"status":"ok","database":"ok"}`.
 

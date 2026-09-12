@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/automations",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/automations?sweep=1",
+      "schedule": "0 14 * * *"
     }
   ]
 }

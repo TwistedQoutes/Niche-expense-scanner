@@ -23,13 +23,20 @@ export type AutomationSubject = { type: SubjectType; id: string };
  * Idempotent per (automation, subject) thanks to a unique index, so firing the
  * same trigger twice — a webhook retried, a button double-clicked — does not
  * start two sequences that both text the customer.
+ *
+ * `rearmFinishedRuns` is for the triggers that are meant to happen again.
+ * Reactivation is the case: a lawn customer needs chasing every season, and the
+ * unique row outlives the run it created, so without this a customer could be
+ * reactivated exactly once in the lifetime of the workspace. It re-arms a run
+ * that has **finished** and never one still in flight — restarting a chase
+ * already under way would text somebody twice.
  */
 export async function fireTrigger(
   db: TenantClient,
   organizationId: string,
   trigger: AutomationTrigger,
   subject: AutomationSubject,
-  options: { now?: Date } = {},
+  options: { now?: Date; rearmFinishedRuns?: boolean } = {},
 ): Promise<number> {
   const now = options.now ?? new Date();
 
@@ -70,6 +77,44 @@ export async function fireTrigger(
       const isDuplicate =
         typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
       if (!isDuplicate) throw error;
+
+      if (!options.rearmFinishedRuns) continue;
+
+      /*
+       * The row is reused rather than a second one inserted, which keeps the
+       * unique index — and therefore the idempotency above — intact. The cost is
+       * that this chase replaces the previous one's bookkeeping; the messages
+       * themselves stay in the conversation, which is the record of what the
+       * customer actually received.
+       *
+       * Scoped to terminal statuses so a PENDING or RUNNING sequence is left
+       * alone.
+       */
+      const rearmed = await db.automationRun.updateMany({
+        where: {
+          automationId: automation.id,
+          subjectType: subject.type,
+          subjectId: subject.id,
+          status: {
+            in: [
+              AutomationRunStatus.COMPLETED,
+              AutomationRunStatus.CANCELLED,
+              AutomationRunStatus.FAILED,
+            ],
+          },
+        },
+        data: {
+          status: AutomationRunStatus.PENDING,
+          currentStep: 0,
+          runAt,
+          attempts: 0,
+          lastError: null,
+          startedAt: null,
+          completedAt: null,
+        },
+      });
+
+      if (rearmed.count > 0) started += 1;
     }
   }
 

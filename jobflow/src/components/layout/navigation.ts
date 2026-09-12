@@ -55,7 +55,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'Growth',
     items: [
       { href: '/automations', label: 'Automations', built: true },
-      { href: '/reviews', label: 'Reviews', built: false },
+      { href: '/reviews', label: 'Reviews', built: true },
       { href: '/analytics', label: 'Analytics', built: false },
     ],
   },
@@ -63,7 +63,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'Configuration',
     items: [
       { href: '/pricing-settings', label: 'Pricing', admin: true, built: true },
-      { href: '/settings', label: 'Settings', built: false },
+      { href: '/settings', label: 'Settings', built: true },
       { href: '/billing', label: 'Billing', admin: true, built: false },
     ],
   },

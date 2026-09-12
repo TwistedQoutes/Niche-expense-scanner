@@ -2,6 +2,7 @@ import { AppError } from '@/lib/api/errors';
 import { withRoute } from '@/lib/api/handler';
 import { jsonOk } from '@/lib/api/response';
 import { runDueAutomations } from '@/lib/automations/worker';
+import { runReactivationSweepForAll } from '@/lib/reviews/repository';
 import { getEnv } from '@/lib/env';
 
 export const runtime = 'nodejs';
@@ -22,6 +23,9 @@ export const dynamic = 'force-dynamic';
  * Accepts the secret as a bearer token or as Vercel's `x-vercel-cron` style
  * header value; POST and GET both work, because schedulers differ on which they
  * send and a 405 at 3am is a silent outage.
+ *
+ * `?sweep=1` additionally runs the reactivation sweep. Schedule that one daily,
+ * not minutely.
  */
 async function handle(request: Request): Promise<Response> {
   const env = getEnv();
@@ -44,7 +48,16 @@ async function handle(request: Request): Promise<Response> {
 
   const report = await runDueAutomations();
 
-  return jsonOk({ ok: true, ...report });
+  /*
+   * The reactivation sweep runs on its own, slower schedule, asked for with
+   * `?sweep=1` (see vercel.json). Who counts as lapsed changes by the day, not by
+   * the minute, so running it on every pass would be one extra query per
+   * workspace per minute to reach the same answer.
+   */
+  const wantsSweep = new URL(request.url).searchParams.get('sweep') === '1';
+  const sweep = wantsSweep ? await runReactivationSweepForAll() : null;
+
+  return jsonOk({ ok: true, ...report, ...(sweep ? { sweep } : {}) });
 }
 
 /**
