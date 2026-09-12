@@ -49,8 +49,24 @@ import { prisma } from '@/lib/db/client';
  * operator can run two of them — and their access comes from `Membership`.
  * `Organization` itself is absent because it is the tenant, not a row inside
  * one. `WebhookEvent` and `AuthToken` are platform-level.
+ *
+ * `Membership` belongs here even though it is how access is *granted*, because
+ * the row still records one person's place in one business. Leaving it out is
+ * not a smaller version of the same bug — it is the whole bug: a membership
+ * query with no tenant filter returns every active member of every business on
+ * the deployment, and the "is this user a teammate?" checks in
+ * `jobs/repository.ts` are written on the assumption that this set covers it.
+ * Resolving *which* organization a session belongs to necessarily happens before
+ * there is an organization to scope to, so that one query uses the base client
+ * directly (`auth/context.ts`) and is unaffected by this list.
+ *
+ * The test in `tests/tenant-isolation.test.ts` derives the expected contents of
+ * this set from the Prisma schema rather than repeating it, so a model added
+ * with an `organizationId` fails the build until it is listed here.
  */
 export const TENANT_MODELS = new Set<string>([
+  Prisma.ModelName.Membership,
+  Prisma.ModelName.Subscription,
   Prisma.ModelName.Customer,
   Prisma.ModelName.Property,
   Prisma.ModelName.Lead,

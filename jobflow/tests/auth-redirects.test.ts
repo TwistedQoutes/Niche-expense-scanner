@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { redirectForFailure, type AuthFailure } from '@/lib/auth/context';
+import { safeReturnPath } from '@/lib/auth/return-path';
 
 /**
  * Regression cover for a redirect loop.
@@ -52,5 +53,55 @@ describe('redirectForFailure', () => {
     // An unescaped path would let a crafted `next` smuggle extra query
     // parameters into the login URL.
     expect(redirectForFailure('signed_out', '/a?b=c&d=e')).toBe('/login?next=%2Fa%3Fb%3Dc%26d%3De');
+  });
+});
+
+describe('safeReturnPath', () => {
+  it('keeps a path within the site, with its query', () => {
+    expect(safeReturnPath('/leads')).toBe('/leads');
+    expect(safeReturnPath('/quotes?status=SENT')).toBe('/quotes?status=SENT');
+  });
+
+  it('rejects a backslash host, which the old prefix check let through', () => {
+    /*
+     * The regression that matters. `/\evil.com` starts with '/' and does not
+     * start with '//', so the previous guard accepted it — and a URL parser
+     * reads the backslash as a slash, making it `https://evil.com/`. Confirmed
+     * in a browser: after a real login the router navigated off-site.
+     */
+    expect(safeReturnPath('/\\evil.com')).toBeUndefined();
+    expect(safeReturnPath('/\\/\\evil.com')).toBeUndefined();
+    expect(safeReturnPath('/\\\tevil.com')).toBeUndefined();
+  });
+
+  it('rejects every other way of naming somewhere else', () => {
+    for (const hostile of [
+      '//evil.com',
+      'https://evil.com',
+      'http://evil.com',
+      'javascript:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      '\\\\evil.com',
+      'evil.com',
+      '/\r/evil.com',
+    ]) {
+      expect(safeReturnPath(hostile)).toBeUndefined();
+    }
+  });
+
+  it('treats an absent or empty value as "no preference"', () => {
+    expect(safeReturnPath(undefined)).toBeUndefined();
+    expect(safeReturnPath(null)).toBeUndefined();
+    expect(safeReturnPath('')).toBeUndefined();
+  });
+
+  it('round-trips what the proxy actually writes', () => {
+    // The two halves have to agree, or signing in quietly stops returning
+    // people to the page they asked for.
+    const target = '/customers/abc123?tab=jobs';
+    const login = redirectForFailure('signed_out', target);
+    const next = new URL(login, 'https://app.example.test').searchParams.get('next');
+
+    expect(safeReturnPath(next)).toBe(target);
   });
 });

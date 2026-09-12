@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -278,46 +279,60 @@ describe('forOrganization', () => {
       expect(lastWhere()).toEqual({ id: ORG });
     });
 
-    it('leaves Membership untouched', async () => {
+    it('scopes Membership, which is one person inside one business', async () => {
+      // Not a hypothetical. While this model was missing from TENANT_MODELS,
+      // `membership.findMany({ where: { status: 'ACTIVE' } })` on the job detail
+      // page returned every active member of every business on the deployment,
+      // and the "is this user a teammate?" guard in jobs/repository.ts accepted
+      // a user id belonging to a different one.
       const db = forOrganization(ORG);
-      await db.membership.findMany({ where: { userId: 'user_1' } });
+      await db.membership.findMany({ where: { status: 'ACTIVE' } });
 
-      expect(lastWhere()).toEqual({ userId: 'user_1' });
+      expect(lastWhere()).toEqual({ status: 'ACTIVE', organizationId: ORG });
     });
   });
 
   describe('the model list', () => {
-    it('covers every model that carries an organizationId', () => {
-      // A model added to the schema with an `organizationId` but forgotten
-      // here would be completely unscoped — the exact bug this guards.
-      for (const model of [
-        'Customer',
-        'Property',
-        'Lead',
-        'LeadActivity',
-        'Service',
-        'PricingRule',
-        'Quote',
-        'QuoteItem',
-        'Job',
-        'Appointment',
-        'Conversation',
-        'Message',
-        'Automation',
-        'AutomationRun',
-        'ReviewRequest',
-        'File',
-        'Notification',
-        'Usage',
-        'Invoice',
-        'AuditLog',
-      ]) {
-        expect(TENANT_MODELS.has(model)).toBe(true);
-      }
+    /*
+     * Derived from the schema, not restated from it.
+     *
+     * The earlier version of this test listed the models it expected by hand,
+     * which made it a copy of TENANT_MODELS rather than a check on it: both the
+     * set and the test were missing Membership, so the test passed and the
+     * cross-tenant leak shipped. Asking Prisma which models actually carry the
+     * column removes the shared blind spot — a model added to schema.prisma
+     * fails here until it is scoped or explicitly exempted below.
+     */
+    const modelsWithOrganizationId = Prisma.dmmf.datamodel.models
+      .filter((model) => model.fields.some((field) => field.name === 'organizationId'))
+      .map((model) => model.name);
+
+    it('finds the column in the schema at all', () => {
+      // If the DMMF shape ever changes, the two tests below would pass over an
+      // empty list and prove nothing. This is the canary for that.
+      expect(modelsWithOrganizationId.length).toBeGreaterThan(15);
     });
 
-    it('excludes the models that have no organizationId column', () => {
-      for (const model of ['User', 'Organization', 'Membership', 'AuthToken', 'WebhookEvent']) {
+    it('covers every model that carries an organizationId', () => {
+      const unscoped = modelsWithOrganizationId.filter((model) => !TENANT_MODELS.has(model));
+
+      expect(unscoped).toEqual([]);
+    });
+
+    it('lists nothing that has no organizationId to filter on', () => {
+      // The mirror image: injecting the filter into a model without the column
+      // makes Prisma throw on a query that should have worked.
+      const spurious = [...TENANT_MODELS].filter(
+        (model) => !modelsWithOrganizationId.includes(model),
+      );
+
+      expect(spurious).toEqual([]);
+    });
+
+    it('leaves the models that are not owned by one business alone', () => {
+      // `User` and `Organization` are deliberate: a person can run two
+      // businesses, and the tenant is not a row inside itself.
+      for (const model of ['User', 'Organization', 'AuthToken', 'WebhookEvent']) {
         expect(TENANT_MODELS.has(model)).toBe(false);
       }
     });

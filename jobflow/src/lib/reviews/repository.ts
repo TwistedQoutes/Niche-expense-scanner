@@ -5,6 +5,7 @@ import { conflict, notFound } from '@/lib/api/errors';
 import { fireTrigger } from '@/lib/automations/trigger';
 import { addDays } from '@/lib/dates';
 import { prisma } from '@/lib/db/client';
+import { assertOwned } from '@/lib/db/ownership';
 import { forOrganization, type TenantClient } from '@/lib/db/tenant';
 import { hasOptedOut } from '@/lib/messaging/optout';
 
@@ -177,6 +178,12 @@ export async function createReviewRequest(
    * cannot leave two reviews anyway.
    */
   if (input.jobId) {
+    // Ours first. The duplicate check below is scoped to this tenant, so a job id
+    // from another business would find no existing request, sail past it, and be
+    // written onto the row — where REVIEW_SELECT reads its number and title back
+    // out (src/lib/db/ownership.ts).
+    await assertOwned(db, { jobId: input.jobId });
+
     const existing = await db.reviewRequest.findFirst({
       where: { jobId: input.jobId },
       select: { id: true },

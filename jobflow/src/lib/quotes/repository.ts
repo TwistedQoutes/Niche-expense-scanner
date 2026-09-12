@@ -2,6 +2,7 @@ import { AutomationTrigger, JobStatus, LeadStatus, Prisma, QuoteStatus } from '@
 
 import { conflict, notFound } from '@/lib/api/errors';
 import { cancelRuns, fireTrigger } from '@/lib/automations/trigger';
+import { assertOwned } from '@/lib/db/ownership';
 import type { TenantClient } from '@/lib/db/tenant';
 import { logActivity } from '@/lib/leads/repository';
 import { generatePublicId, nextNumber, withNumberRetry } from '@/lib/quotes/numbering';
@@ -123,6 +124,26 @@ export type CreateQuoteArgs = {
  */
 export async function createQuote(db: TenantClient, args: CreateQuoteArgs) {
   const { breakdown } = args;
+
+  /*
+   * Every id the caller supplied, checked against this tenant before any of it
+   * is written (src/lib/db/ownership.ts explains why the tenant client cannot
+   * do this for us). The property matters most: the quote's public page renders
+   * its street address to anyone holding the link, so an unchecked propertyId
+   * would publish another business's customer address on the open internet.
+   */
+  await assertOwned(db, {
+    customerId: args.customerId,
+    leadId: args.leadId,
+    propertyId: args.propertyId,
+    serviceId: args.serviceId,
+  });
+
+  for (const item of args.items ?? []) {
+    // Line items name the service they were priced from, and that id is what
+    // the accepted quote hands to the job and the revenue report groups by.
+    await assertOwned(db, { serviceId: item.serviceId });
+  }
 
   // One line per quote by default, named after the service. An owner can add
   // more; what matters is that the document always has something to show, since

@@ -5,6 +5,7 @@ import { readJsonBody, withRoute } from '@/lib/api/handler';
 import { RATE_LIMITS, enforceRateLimit } from '@/lib/api/rate-limit';
 import { jsonOk, toFieldErrors } from '@/lib/api/response';
 import { requireAuth, requireRole } from '@/lib/auth/context';
+import { assertOwned } from '@/lib/db/ownership';
 import { LEAD_CARD_SELECT, getLead, logActivity } from '@/lib/leads/repository';
 import { idSchema } from '@/lib/validation/common';
 import { updateLeadSchema } from '@/lib/validation/leads';
@@ -51,6 +52,10 @@ export const PATCH = withRoute(async (request, context: { params: Promise<{ id: 
   if (!existing) throw notFound('That lead does not exist.');
 
   const { nextFollowUpAt, lastContactedAt, ...rest } = parsed.data;
+
+  // `rest` can carry a customerId or propertyId straight from the body, and the
+  // tenant client does not follow foreign keys (src/lib/db/ownership.ts).
+  await assertOwned(auth.db, { customerId: rest.customerId, propertyId: rest.propertyId });
 
   const lead = await auth.db.lead.update({
     where: { id },

@@ -55,15 +55,35 @@ async function sendViaResend(message: EmailMessage): Promise<EmailResult> {
   return { delivered: true, driver: 'resend' };
 }
 
+/**
+ * Prints what would have been sent — with one line held back in production.
+ *
+ * The body is the entire value of this driver locally: a password-reset link has
+ * to be clickable from the terminal when there is no inbox to check. But the same
+ * text in a production log is a single-use credential sitting in a log stream
+ * that gets shipped, indexed and shared far more widely than a mailbox — so a
+ * deployment that simply has not configured Resend yet would be handing out
+ * account access to anyone who can read its logs.
+ *
+ * So the body prints outside production and is withheld inside it, where the
+ * envelope alone still answers the operational question ("is the app trying to
+ * send mail, and to whom?") and still fails loudly enough to notice.
+ */
 function logInsteadOfSending(message: EmailMessage): EmailResult {
+  const { NODE_ENV } = getEnv();
+
+  const body =
+    NODE_ENV === 'production'
+      ? ['[body withheld: EMAIL_DRIVER is "none" in production — configure Resend to deliver it]']
+      : ['', message.text];
+
   console.info(
     [
       '',
       '─── email not sent: EMAIL_DRIVER is "none" ───',
       `to:      ${message.to}`,
       `subject: ${message.subject}`,
-      '',
-      message.text,
+      ...body,
       '──────────────────────────────────────────────',
       '',
     ].join('\n'),

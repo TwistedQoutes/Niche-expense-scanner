@@ -3,6 +3,7 @@ import { AutomationTrigger, JobStatus, Prisma } from '@prisma/client';
 import { conflict, notFound, validationFailed } from '@/lib/api/errors';
 import { cancelRuns, fireTrigger } from '@/lib/automations/trigger';
 import { addDays } from '@/lib/dates';
+import { assertOwned } from '@/lib/db/ownership';
 import type { TenantClient } from '@/lib/db/tenant';
 import { nextNumber, withNumberRetry } from '@/lib/quotes/numbering';
 import { findConflicts, describeConflict } from '@/lib/scheduling/repository';
@@ -133,6 +134,15 @@ export async function createJob(
   organizationId: string,
   input: CreateJobInput,
 ): Promise<JobRow> {
+  // The service, property and quote a job is attached to are all caller-supplied
+  // ids, and a foreign key is outside what the tenant client can scope — see
+  // src/lib/db/ownership.ts. JOB_SELECT reads back through every one of them.
+  await assertOwned(db, {
+    serviceId: input.serviceId,
+    propertyId: input.propertyId,
+    quoteId: input.quoteId,
+  });
+
   const customer = await db.customer.findUnique({
     where: { id: input.customerId },
     select: { id: true },

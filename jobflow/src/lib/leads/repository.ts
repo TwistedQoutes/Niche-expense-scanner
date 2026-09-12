@@ -1,6 +1,7 @@
 import { LeadStatus, Prisma } from '@prisma/client';
 
 import { conflict, notFound } from '@/lib/api/errors';
+import { assertOwned } from '@/lib/db/ownership';
 import type { TenantClient } from '@/lib/db/tenant';
 import { POSITION_GAP, positionBetween, respacedPositions } from '@/lib/leads/pipeline';
 
@@ -226,6 +227,11 @@ export async function createLead(
   data: CreateLeadData,
   actorUserId: string | null,
 ) {
+  // A caller may attach the lead to an existing customer or property. Both ids
+  // come from the request body, and a foreign key is not covered by the tenant
+  // client — see src/lib/db/ownership.ts for what that let through.
+  await assertOwned(db, { customerId: data.customerId, propertyId: data.propertyId });
+
   const status = data.status ?? LeadStatus.NEW;
   const position = await topPosition(db, status);
 

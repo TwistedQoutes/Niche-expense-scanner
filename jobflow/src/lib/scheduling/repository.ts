@@ -2,6 +2,7 @@ import { AppointmentStatus, JobStatus, Prisma } from '@prisma/client';
 
 import { conflict, notFound, validationFailed } from '@/lib/api/errors';
 import { instantToWallClock, localDayRange, localWeekDays, parseLocalDateTime } from '@/lib/dates';
+import { assertOwned } from '@/lib/db/ownership';
 import type { TenantClient } from '@/lib/db/tenant';
 import { addMinutes } from '@/lib/dates';
 import { overlaps, type Interval } from '@/lib/scheduling/overlap';
@@ -158,21 +159,19 @@ export async function createAppointment(
     }
   }
 
-  // Existence is checked rather than assumed: Prisma would raise a foreign-key
-  // error, which reaches the client as a 500 instead of a message about the
-  // customer having been deleted in another tab.
-  if (input.customerId) {
-    const customer = await db.customer.findUnique({
-      where: { id: input.customerId },
-      select: { id: true },
-    });
-    if (!customer) throw notFound('That customer does not exist.');
-  }
-
-  if (input.jobId) {
-    const job = await db.job.findUnique({ where: { id: input.jobId }, select: { id: true } });
-    if (!job) throw notFound('That job does not exist.');
-  }
+  /*
+   * Existence is checked rather than assumed, for two reasons that happen to
+   * share one implementation. A missing row would otherwise surface as a
+   * foreign-key error — a 500, where the honest answer is "that customer was
+   * deleted in another tab". And a row belonging to *another business* would not
+   * error at all: the tenant client cannot scope a foreign key, so the id would
+   * be written and then read back through (src/lib/db/ownership.ts).
+   */
+  await assertOwned(db, {
+    customerId: input.customerId,
+    jobId: input.jobId,
+    serviceId: input.serviceId,
+  });
 
   return db.appointment.create({
     data: {

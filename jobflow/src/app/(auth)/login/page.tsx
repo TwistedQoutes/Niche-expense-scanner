@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { AuthForm } from '@/components/auth/AuthForm';
 import { Alert } from '@/components/ui/Alert';
+import { safeReturnPath } from '@/lib/auth/return-path';
 
 export const metadata: Metadata = { title: 'Sign in' };
 
@@ -19,8 +20,10 @@ export default async function LoginPage(props: {
 
   // Only a same-site path is accepted. Echoing an arbitrary `next` into a
   // redirect is an open redirect: an attacker mails a link to our own login
-  // page that bounces to theirs, wearing our domain in the address bar.
-  const nextPath = next?.startsWith('/') && !next.startsWith('//') ? next : undefined;
+  // page that bounces to theirs, wearing our domain in the address bar. The
+  // decision is a URL parser's, not a prefix test's — see the note in
+  // src/lib/auth/return-path.ts for the version of this that was exploitable.
+  const nextPath = safeReturnPath(next);
 
   // Allow-listed rather than rendered as given. Text from a query string shown
   // on a sign-in page is a phishing primitive — it lets anyone put their own

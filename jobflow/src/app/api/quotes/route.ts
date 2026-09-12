@@ -1,6 +1,6 @@
 import { Prisma, UsageMetric } from '@prisma/client';
 
-import { notFound, validationFailed } from '@/lib/api/errors';
+import { validationFailed } from '@/lib/api/errors';
 import { readJsonBody, withRoute } from '@/lib/api/handler';
 import { RATE_LIMITS, enforceRateLimit } from '@/lib/api/rate-limit';
 import { jsonOk, toFieldErrors } from '@/lib/api/response';
@@ -68,21 +68,9 @@ export const POST = withRoute(async (request) => {
     throw validationFailed({ customerId: 'Attach the quote to a customer or a lead.' });
   }
 
-  if (body.customerId) {
-    const customer = await auth.db.customer.findUnique({
-      where: { id: body.customerId },
-      select: { id: true },
-    });
-    if (!customer) throw notFound('That customer does not exist.');
-  }
-
-  if (body.leadId) {
-    const lead = await auth.db.lead.findUnique({
-      where: { id: body.leadId },
-      select: { id: true },
-    });
-    if (!lead) throw notFound('That lead does not exist.');
-  }
+  // Which ids are real, and whose they are, is settled inside `createQuote` —
+  // one check next to the write rather than a copy here that a second caller
+  // would not inherit. See src/lib/db/ownership.ts.
 
   const { breakdown, input, serviceName } = await resolvePricing(auth, body.pricing);
 
