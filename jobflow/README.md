@@ -18,7 +18,7 @@ LEAD → AI QUALIFICATION → CUSTOMER → PROPERTY → ESTIMATE → QUOTE
 
 ## Where this is up to
 
-The build is phased. **Phases 1–10 are complete and verified**: project setup,
+The build is phased. **Phases 1–11 are complete and verified**: project setup,
 the full database schema, multi-tenancy, authentication, the dashboard shell,
 the lead pipeline and CRM, the services catalogue and pricing engine,
 professional quotes a customer can accept without an account, AI lead
@@ -26,7 +26,9 @@ qualification, the messaging layer — a unified inbox, missed-call text-back,
 carrier-compliant opt-out and the automated follow-up engine — scheduling with
 jobs and a calendar in the business's own timezone, and the repeat-business
 loop: tracked review requests, reactivation of lapsed customers, and the
-settings screen the rest of it depends on.
+settings screen the rest of it depends on, and Stripe billing — hosted checkout,
+a signature-verified webhook, and plan limits that follow what the workspace has
+actually paid for.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -40,8 +42,8 @@ settings screen the rest of it depends on.
 | 8 | Email/SMS, Twilio, Resend, automated follow-up | ✅ Done |
 | 9 | Calendar, appointments, jobs | ✅ Done |
 | 10 | Review requests, customer reactivation | ✅ Done |
-| 11 | Stripe billing, subscriptions, usage limits | Next — usage metering done |
-| 12 | Analytics, admin dashboard | Planned |
+| 11 | Stripe billing, subscriptions, usage limits | ✅ Done |
+| 12 | Analytics, admin dashboard | Next |
 | 13 | Landing page, onboarding, demo mode | Landing page and settings done |
 | 14 | Testing, security, performance, deployment | Ongoing |
 
@@ -622,6 +624,98 @@ answer.
 
 ---
 
+## Billing
+
+### The webhook is the only thing that grants a paid plan
+
+Which makes it the highest-value endpoint in the product to forge. A fabricated
+`customer.subscription.updated` is a free Business plan; a fabricated
+`customer.subscription.deleted` downgrades a paying customer out of spite. So:
+
+- **The signature is checked over the raw bytes.** `request.text()`, never
+  `request.json()` — re-serialising changes key order and whitespace, the signature
+  is over what Stripe sent, and an implementation that re-serialises fails on every
+  legitimate webhook. The usual "fix" for that is to stop verifying.
+- **Verification fails closed.** No signing secret configured means every webhook
+  is rejected, because the alternative turns a missing environment variable into a
+  way to grant yourself a paid plan.
+- **The timestamp is enforced** with Stripe's five-minute tolerance, in both
+  directions. Without it a captured signature stays valid forever and a payment
+  event can be replayed as often as you like; accepting future timestamps would
+  have the same effect.
+- **Every `v1` value is compared**, in constant time. Stripe sends more than one
+  during a secret rotation, and reading only the first breaks every webhook for the
+  length of the rollover.
+
+`tests/stripe-verify.test.ts` builds signatures the way Stripe documents and checks
+each of those cases, including that a re-serialised body is rejected — the test that
+documents why the route reads raw bytes.
+
+### Replay is handled twice, deliberately
+
+The timestamp tolerance stops a captured request being reused. Separately, every
+processed event id is recorded, because Stripe legitimately retries any delivery
+that does not return 2xx — and applying a payment event twice is not a display bug.
+
+The event row is written **before** the work, not after. A concurrent duplicate
+then loses the insert and returns early, rather than both deliveries passing a
+"have we seen this?" check and both applying the event. If the work afterwards
+throws, the claim is released, because an event marked handled that never was leaves
+a workspace on the wrong plan with no retry coming.
+
+### An unknown price is never guessed at
+
+A webhook names a price, and that decides which plan's limits the workspace gets.
+An unrecognised one leaves the plan exactly as it was and logs loudly. Every
+fallback is worse: defaulting to the top tier hands out Business on a configuration
+mistake, defaulting to FREE downgrades a paying customer because an environment
+variable was missing, and trusting the tier in the event's own metadata lets anyone
+who can create a subscription pick their own plan.
+
+### A webhook may only change the workspace it names
+
+The organization is resolved from metadata we set at checkout, confirmed against a
+real row, with the Stripe customer id as a fallback for a subscription created by
+hand in Stripe's dashboard. An event that cannot be attributed is logged and
+dropped — applying it to an arbitrary workspace would change the wrong customer's
+plan.
+
+`stripeCustomerId` and `stripeSubscriptionId` are unique across the whole table, so
+writing one another workspace already holds raises a constraint violation. Left
+unhandled that is a 500, and Stripe retries a failing delivery for days before
+disabling the endpoint — so one collision would break every subsequent event for
+that workspace. The collision is detected first: the identifier is **not claimed**,
+the plan and status are still applied, and the clash is logged for a person to
+resolve. Not claimed rather than moved, because silently reassigning it would move
+the billing relationship with it.
+
+### A failed payment must not lock anybody out
+
+`effectivePlan` drops a past-due, unpaid or cancelled workspace to FREE limits and
+nothing else. No data is deleted, no screen is taken away, and the plan they had
+stays on the record. Locking someone out of their own customer list over a failed
+card is how a billing problem becomes a cancellation.
+
+Refusals say which it is. A workspace nominally on Pro and effectively on Free is
+not told "your plan does not include text messages" — that reads as wrong to
+somebody who is paying. It is told the payment failed and where to fix it.
+
+### Cards are Stripe's problem
+
+Checkout and the billing portal are both hosted. No card detail is ever typed into
+this product, which keeps the whole application out of PCI scope. Cancellation
+lives in the portal too, where the customer can see exactly what it means and when
+it takes effect.
+
+Checkout is **OWNER only** — it commits the business to a recurring charge — and
+the organization comes from the verified session, never from the request, so a
+caller cannot buy a plan for another workspace. Every mutating Stripe call carries
+an idempotency key, so a double-clicked upgrade button is one subscription rather
+than two. Any trial still running is passed to Stripe, so entering a card early
+does not cost the customer the days they were promised.
+
+---
+
 ## Multi-tenancy
 
 Every business's rows live in the same tables, separated by `organizationId`.
@@ -778,11 +872,23 @@ date and a time of day, never an instant — see [Scheduling](#scheduling).
 | Ask one customer for a review | `POST /api/reviews` |
 | The business's own details | `PATCH /api/settings` |
 
+### Billing
+
+| Operation | Route |
+| --- | --- |
+| Start a hosted checkout | `POST /api/billing/checkout` |
+| Open Stripe's billing portal | `POST /api/billing/portal` |
+
+Both are OWNER only, and both take the organization from the verified session
+rather than the body — so a caller cannot buy a plan for, or manage the billing
+of, another workspace.
+
 ### Machine callers — no session
 
 | Operation | Route |
 | --- | --- |
 | Inbound texts and call status | `POST /api/webhooks/twilio` |
+| Subscriptions, invoices and payments | `POST /api/stripe/webhook` |
 | Run due automation steps | `POST /api/cron/automations` |
 | Also sweep for lapsed customers | `POST /api/cron/automations?sweep=1` |
 | A customer tapping a review link | `GET /r/[token]` |
@@ -841,24 +947,26 @@ be unpooled — Prisma Migrate needs advisory locks a pooler cannot provide.
 
 ### Stripe (billing)
 
-1. Create four products in Stripe with recurring monthly prices: Starter $49,
-   Pro $99, Business $199. (Free needs no product.)
-2. Copy each **price** id (`price_…`, not `prod_…`) into `STRIPE_PRICE_STARTER`,
-   `STRIPE_PRICE_PRO`, `STRIPE_PRICE_BUSINESS`.
-3. Set `STRIPE_SECRET_KEY` and `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
-4. Locally, forward webhooks and copy the signing secret it prints:
-   ```bash
-   stripe listen --forward-to localhost:3000/api/stripe/webhook
-   ```
-5. In production, add the endpoint in the Stripe dashboard and copy its signing
-   secret into `STRIPE_WEBHOOK_SECRET`.
+```bash
+STRIPE_SECRET_KEY="sk_live_..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
+STRIPE_PRICE_STARTER="price_..."
+STRIPE_PRICE_PRO="price_..."
+STRIPE_PRICE_BUSINESS="price_..."
+```
 
-`STRIPE_WEBHOOK_SECRET` is required whenever `STRIPE_SECRET_KEY` is set, and the
-environment loader enforces that. An unverified webhook is an endpoint anyone can
-POST to in order to grant themselves a subscription.
+Create one recurring monthly price per paid tier in Stripe and put its id in the
+matching variable. A tier with no price configured simply cannot be bought, and the
+API says so rather than failing at Stripe.
 
-Plans and their limits are defined once, in `src/lib/billing/plans.ts`. The
-pricing page, the billing screen and the usage guard all read that table.
+Add the webhook endpoint at `https://yourdomain.com/api/stripe/webhook` and
+subscribe it to `checkout.session.completed`, `customer.subscription.*`,
+`invoice.paid` and `invoice.payment_failed`. Its signing secret goes in
+`STRIPE_WEBHOOK_SECRET` — without it **every webhook is rejected**, which is
+deliberate: see [Billing](#billing).
+
+With no Stripe keys at all, plans and limits still work and usage is still metered;
+there is simply nothing to buy, and the billing screen says so.
 
 ### OpenAI (AI features)
 
@@ -980,6 +1088,7 @@ jobflow/
 │   │   │   ├── customers/         list and full CRM detail
 │   │   │   ├── dashboard/
 │   │   │   ├── automations/       follow-up sequences, on and off
+│   │   │   ├── billing/           plan, usage this month, invoices
 │   │   │   ├── calendar/          day and week, in the business's timezone
 │   │   │   ├── jobs/              list by status, and one job's whole life
 │   │   │   ├── leads/             pipeline board, new, detail
@@ -994,6 +1103,7 @@ jobflow/
 │   │   │   ├── appointments/      the calendar, and visits without a job
 │   │   │   ├── auth/              signup, login, logout, me, reset, verify
 │   │   │   ├── automations/       enable and disable a sequence
+│   │   │   ├── billing/           hosted checkout and the Stripe portal
 │   │   │   ├── conversations/     manual reply into a thread
 │   │   │   ├── cron/              the automation worker, bearer-authenticated
 │   │   │   ├── customers/         list, create, read, update, delete
@@ -1007,6 +1117,7 @@ jobflow/
 │   │   │   ├── reviews/           list, and ask one customer
 │   │   │   ├── services/          list, create, update, delete
 │   │   │   ├── settings/          the business's own details
+│   │   │   ├── stripe/            the billing webhook
 │   │   │   └── webhooks/twilio/   inbound texts and call status
 │   │   ├── legal/                 terms, privacy
 │   │   ├── quote/[publicId]/      the customer's quote page — no session
@@ -1019,6 +1130,7 @@ jobflow/
 │   ├── components/
 │   │   ├── auth/                  sign-in, sign-up, reset, verify forms
 │   │   ├── automations/           the on/off switch and what it warns about
+│   │   ├── billing/               plan actions, usage bars
 │   │   ├── jobs/                  schedule form, status actions, tones
 │   │   ├── layout/                sidebar, bottom nav, top bar, nav map
 │   │   ├── leads/                 pipeline board, card, actions, AI panel
@@ -1045,6 +1157,7 @@ jobflow/
 │   │   ├── pricing/               the pure calculation, and input resolution
 │   │   ├── quotes/                numbering, public scope, lifecycle
 │   │   ├── reviews/               requests, tracked clicks, reactivation
+│   │   ├── stripe/                client, signature checks, subscription state
 │   │   ├── email/
 │   │   ├── organizations/         workspace provisioning
 │   │   ├── scheduling/            overlap rules, appointments, the calendar
@@ -1112,6 +1225,17 @@ trapping, popover positioning) is needed.
 - **A tracked review link never reflects its stored target back** on failure, so a
   bad value cannot become a redirect gadget; unknown, malformed and unsafe all get
   the same answer
+- **Stripe's signature is verified over the raw request bytes**, with a timestamp
+  tolerance so a captured request cannot be replayed, and every rotation signature
+  compared in constant time
+- **Every Stripe event id is recorded before the work**, so a retried delivery
+  cannot credit a payment twice
+- **A webhook can only change the workspace it names**, and an unrecognised price
+  never moves a plan in either direction
+- **No card detail is handled by this product** — checkout and the portal are both
+  Stripe-hosted, which keeps the application out of PCI scope
+- **Buying a plan is OWNER only**, and the workspace comes from the session rather
+  than the request
 
 To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 
@@ -1123,7 +1247,7 @@ To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 npm test
 ```
 
-391 tests covering tenant isolation, session tokens and revocation, the
+419 tests covering tenant isolation, session tokens and revocation, the
 redirect-loop regression, the AI guardrails and their false-positive behaviour,
 AI absence and bounded failure, quote expiry and response gating, public-id
 entropy, document numbering under a race, the pricing engine (including the
@@ -1132,8 +1256,10 @@ overrides), pipeline ordering and respacing, Twilio signature verification,
 carrier opt-out keywords, template rendering, inbound number resolution,
 timezone-aware booking across daylight-saving boundaries, appointment overlap,
 job state transitions, review-link and redirect-target safety, review token
-entropy, plan resolution, money arithmetic, request validation, plan limits, rate
-limiting, workspace slugs and the service catalogue.
+entropy, Stripe signature verification and replay windows, subscription status
+mapping, plan resolution after a billing failure, money arithmetic, request
+validation, plan limits, rate limiting, workspace slugs and the service
+catalogue.
 
 The most important file is `tests/tenant-isolation.test.ts`. Isolation is the one
 property whose failure is unrecoverable — a customer list shown to the wrong
@@ -1167,8 +1293,11 @@ to round-trip every hour across the two days a year the arithmetic is hard.
    ```bash
    DATABASE_URL="<direct, unpooled url>" npm run db:migrate:deploy
    ```
-6. Add the Stripe webhook endpoint at `https://yourdomain.com/api/stripe/webhook`
-   and put its signing secret in `STRIPE_WEBHOOK_SECRET`.
+6. Add the Stripe webhook endpoint at `https://yourdomain.com/api/stripe/webhook`,
+   subscribed to `checkout.session.completed`, `customer.subscription.*`,
+   `invoice.paid` and `invoice.payment_failed`, and put its signing secret in
+   `STRIPE_WEBHOOK_SECRET`. Without that secret every webhook is rejected, so a
+   plan would never activate — check Stripe's own delivery log if one does not.
 7. Set `CRON_SECRET` to a long random value to turn on automated follow-ups.
    `vercel.json` schedules `/api/cron/automations` minutely and
    `/api/cron/automations?sweep=1` once a day for the reactivation sweep; the

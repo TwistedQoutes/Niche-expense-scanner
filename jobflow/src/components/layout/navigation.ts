@@ -64,7 +64,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: '/pricing-settings', label: 'Pricing', admin: true, built: true },
       { href: '/settings', label: 'Settings', built: true },
-      { href: '/billing', label: 'Billing', admin: true, built: false },
+      { href: '/billing', label: 'Billing', admin: true, built: true },
     ],
   },
 ];

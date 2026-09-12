@@ -105,6 +105,8 @@ const serverEnvSchema = z.object({
   STRIPE_PRICE_STARTER: z.string().min(1).optional(),
   STRIPE_PRICE_PRO: z.string().min(1).optional(),
   STRIPE_PRICE_BUSINESS: z.string().min(1).optional(),
+  /** Overridable for the same reason as the other base URLs: proxies and tests. */
+  STRIPE_BASE_URL: z.string().url().default('https://api.stripe.com/v1'),
   /** Days of full PRO access a new workspace gets before a card is required. */
   TRIAL_DAYS: z.coerce.number().int().min(0).max(90).default(14),
 

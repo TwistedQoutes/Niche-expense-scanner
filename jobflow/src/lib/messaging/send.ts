@@ -3,9 +3,11 @@ import {
   MessageDirection,
   MessageStatus,
   PlanTier,
+  SubscriptionStatus,
   UsageMetric,
 } from '@prisma/client';
 
+import { planFor } from '@/lib/billing/plans';
 import { effectivePlan, readUsage, recordUsage } from '@/lib/billing/usage';
 import type { TenantClient } from '@/lib/db/tenant';
 import { sendEmail } from '@/lib/email';
@@ -155,14 +157,29 @@ export async function sendMessage(
   const usage = await readUsage(db, plan, METRIC[kind]);
 
   if (usage.exceeded) {
-    return {
-      ok: false,
-      reason: 'limit',
-      message:
-        usage.limit === 0
-          ? `Your plan does not include ${kind === 'SMS' ? 'text messages' : 'email'}. Upgrade to send them.`
-          : `You have used all ${usage.limit} ${kind === 'SMS' ? 'texts' : 'emails'} on your plan this month.`,
-    };
+    const noun = kind === 'SMS' ? 'text messages' : 'email';
+
+    /*
+     * Why they are being refused, not just that they are.
+     *
+     * A workspace whose card failed is nominally on Pro and effectively on Free,
+     * so "your plan does not include text messages" is not only unhelpful but
+     * reads as wrong to somebody who is paying. The billing state is the actual
+     * cause, so it is the thing named.
+     */
+    const blockedByBilling =
+      subscription !== null &&
+      subscription !== undefined &&
+      subscription.plan !== plan &&
+      subscription.status !== SubscriptionStatus.TRIALING;
+
+    const message = blockedByBilling
+      ? `Your ${planFor(subscription.plan).name} plan is not active — the last payment did not go through — so ${planFor(plan).name} limits apply and ${noun} are not included. Update your card in Billing to restore it.`
+      : usage.limit === 0
+        ? `Your plan does not include ${noun}. Upgrade to send them.`
+        : `You have used all ${usage.limit} ${kind === 'SMS' ? 'texts' : 'emails'} on your plan this month.`;
+
+    return { ok: false, reason: 'limit', message };
   }
 
   const conversationId = await findOrCreateConversation(db, organizationId, {
