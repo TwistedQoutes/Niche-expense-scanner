@@ -70,6 +70,15 @@ const serverEnvSchema = z.object({
   AI_DRIVER: z.enum(['none', 'openai']).default('none'),
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
+  /**
+   * Where the chat-completions endpoint lives.
+   *
+   * Overridable because "OpenAI-compatible" is now a category rather than one
+   * vendor: Azure OpenAI, a corporate egress proxy, and a self-hosted gateway
+   * all speak this API at a different host, and a business with a procurement
+   * department will have one of them. Defaults to OpenAI itself.
+   */
+  OPENAI_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
 
   // --- Maps ----------------------------------------------------------------
   /**

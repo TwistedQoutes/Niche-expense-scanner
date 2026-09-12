@@ -18,10 +18,11 @@ LEAD → AI QUALIFICATION → CUSTOMER → PROPERTY → ESTIMATE → QUOTE
 
 ## Where this is up to
 
-The build is phased. **Phases 1–6 are complete and verified**: project setup,
+The build is phased. **Phases 1–7 are complete and verified**: project setup,
 the full database schema, multi-tenancy, authentication, the dashboard shell,
-the lead pipeline and CRM, the services catalogue and pricing engine, and
-professional quotes a customer can accept without an account.
+the lead pipeline and CRM, the services catalogue and pricing engine,
+professional quotes a customer can accept without an account, and AI lead
+qualification.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -31,8 +32,8 @@ professional quotes a customer can accept without an account.
 | 4 | Customers, leads, CRM, Kanban pipeline | ✅ Done |
 | 5 | Services, pricing engine, quote calculator | ✅ Done |
 | 6 | Quote generation, public quote pages, acceptance | ✅ Done |
-| 7 | AI lead qualification, AI responses | Next |
-| 8 | Email/SMS, Twilio, Resend, automated follow-up | Planned |
+| 7 | AI lead qualification, AI responses | ✅ Done |
+| 8 | Email/SMS, Twilio, Resend, automated follow-up | Next |
 | 9 | Calendar, appointments, jobs | Jobs created on acceptance |
 | 10 | Review requests, customer reactivation | Planned |
 | 11 | Stripe billing, subscriptions, usage limits | Usage metering done |
@@ -167,6 +168,68 @@ over without a scheduled job.
 A past-due or cancelled subscription falls back to FREE rather than locking the
 account. Locking someone out of their own customer list over a failed card turns
 a billing problem into a cancellation.
+
+---
+
+## AI
+
+New leads are scored automatically a second or two after they arrive: a number
+out of 100, the job in one line, an urgency, a next action, and a draft reply.
+That answers the only question an owner has at 7am with eleven enquiries waiting —
+*which of these do I ring first?*
+
+**Capturing a lead never depends on the AI working.** Qualification is
+fire-and-forget: the lead is written and the response returns, then the score
+follows. Verified live at 60ms for a create with AI off. A missed enquiry is the
+failure this whole product is sold to prevent, so it cannot be made contingent on
+a third party being up.
+
+### The guardrails are code, not prompt
+
+The system prompt asks the model not to quote prices, promise a time, or claim
+the business is licensed. That is worth doing and it is **not a control**: a
+prompt is a request, and the text it shapes is partly written by whoever filled
+in a public intake form. So every rule is enforced again on the output, in
+`src/lib/ai/guardrails.ts`, where it cannot be talked out of:
+
+| Rule | Why |
+| --- | --- |
+| **No prices** | A price the model invents is a price the business is on the hook for. The only trustworthy number comes from the pricing engine, against rates the owner set. |
+| **No time commitments** | Availability belongs to the calendar. A promised slot the calendar never agreed to is a missed appointment. |
+| **No legal or safety claims** | "Guaranteed", "insured", "certified", "pet-safe" carry legal weight. They may be true of the business; they are not the model's to assert. |
+| **No invented contact details** | A hallucinated phone number sends a customer to a stranger. |
+
+Findings are **redacted, not rejected** — a draft with one phrase removed and a
+warning attached is still useful; discarding a whole reply over four words is
+not. Every redaction is recorded on the lead's activity trail, so an owner can
+see later *that* something was removed.
+
+Nothing the model writes is ever sent. The panel has a copy button and no send
+button, deliberately: the person whose business name goes on the reply reads it
+first.
+
+### Other decisions
+
+- **`temperature: 0`** and JSON mode. Scoring is classification, not creativity:
+  the same lead has to score the same way twice or the number is not worth
+  sorting by.
+- **Every failure is bounded** — its own abort timeout and token ceiling, because
+  a hung upstream call would otherwise hold a serverless invocation open until the
+  platform kills it.
+- **Three distinct outcomes**, mapped to real status codes: 403 when the plan's
+  AI allowance is spent, **501** when this deployment has no key configured at
+  all, 502 when the model itself failed. "Not configured" and "not allowed" would
+  send an owner looking for a permission they do not need.
+- **A missing score is `null`, not `0`.** "Not scored" and "scored zero" mean
+  opposite things to someone deciding what to work on.
+- **An unrecognised urgency becomes MEDIUM** — not EMERGENCY, which would cry
+  wolf on every parse slip, and not LOW, which would bury a real emergency.
+- **`OPENAI_BASE_URL` is configurable**, because "OpenAI-compatible" is a
+  category now: Azure OpenAI, an egress proxy and a self-hosted gateway all speak
+  this API at a different host.
+
+With `AI_DRIVER=none` — the default — the lead page says so plainly and
+everything else works unchanged.
 
 ---
 
@@ -391,6 +454,12 @@ What it provides:
 | Record that it was opened | `POST /api/public/quotes/[publicId]/view` |
 | Accept, decline, ask for changes | `POST /api/public/quotes/[publicId]/respond` |
 
+### AI
+
+| Operation | Route |
+| --- | --- |
+| Score a lead and draft a reply | `POST /api/ai/qualify` |
+
 Security properties worth knowing about:
 
 - **Sessions are revocable despite being stateless.** A JWT normally cannot be
@@ -552,6 +621,7 @@ jobflow/
 │   │   │   └── quotes/            list and detail
 │   │   ├── (auth)/                login, signup, password reset, verification
 │   │   ├── api/
+│   │   │   ├── ai/                qualify a lead
 │   │   │   ├── auth/              signup, login, logout, me, reset, verify
 │   │   │   ├── customers/         list, create, read, update, delete
 │   │   │   ├── health/            liveness plus a real database round-trip
@@ -571,13 +641,14 @@ jobflow/
 │   ├── components/
 │   │   ├── auth/                  sign-in, sign-up, reset, verify forms
 │   │   ├── layout/                sidebar, bottom nav, top bar, nav map
-│   │   ├── leads/                 pipeline board, card, actions, new form
+│   │   ├── leads/                 pipeline board, card, actions, AI panel
 │   │   ├── pricing/               defaults form, service editor, calculator
 │   │   ├── quotes/                send panel, customer response, quote-from-lead
 │   │   ├── legal/
 │   │   └── ui/                    Button, Card, Field, Alert, Badge,
 │   │                              StatCard, EmptyState, Skeleton, Toast
 │   ├── lib/
+│   │   ├── ai/                    client, guardrails, qualification
 │   │   ├── analytics/summary.ts   dashboard figures, one parallel burst
 │   │   ├── api/                   errors, handler, response, rate-limit
 │   │   ├── auth/                  session, context, password, tokens, emails
@@ -641,9 +712,10 @@ To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 npm test
 ```
 
-223 tests covering tenant isolation, session tokens and revocation, the
-redirect-loop regression, quote expiry and response gating, public-id entropy,
-document numbering under a race, the pricing engine (including the
+288 tests covering tenant isolation, session tokens and revocation, the
+redirect-loop regression, the AI guardrails and their false-positive behaviour,
+AI absence and bounded failure, quote expiry and response gating, public-id
+entropy, document numbering under a race, the pricing engine (including the
 specification's own worked example, margin-versus-markup, rules, floors, tax and
 overrides), pipeline ordering and respacing, plan resolution, money arithmetic,
 request validation, plan limits, rate limiting, workspace slugs and the service

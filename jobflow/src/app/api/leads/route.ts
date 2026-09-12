@@ -6,6 +6,7 @@ import { RATE_LIMITS, enforceRateLimit } from '@/lib/api/rate-limit';
 import { jsonOk, toFieldErrors } from '@/lib/api/response';
 import { requireAuth } from '@/lib/auth/context';
 import { effectivePlan, enforceUsageLimit, recordUsage } from '@/lib/billing/usage';
+import { qualifyInBackground } from '@/lib/ai/lead-qualification';
 import { createLead, listLeads } from '@/lib/leads/repository';
 import { createLeadSchema, listLeadsQuerySchema } from '@/lib/validation/leads';
 
@@ -53,6 +54,12 @@ export const POST = withRoute(async (request) => {
   // Recorded after the write succeeds, so a lead that failed validation or hit
   // a constraint does not spend someone's monthly allowance.
   await recordUsage(auth.db, auth.organization.id, UsageMetric.LEADS);
+
+  // Deliberately not awaited. The response returns as soon as the lead is
+  // saved; the score follows a second or two later. Making the owner's button
+  // wait on a third-party round trip would be slower when it works and broken
+  // when it does not — and a captured lead is the thing that must never fail.
+  qualifyInBackground(auth, lead.id);
 
   return jsonOk({ lead }, { status: 201 });
 });

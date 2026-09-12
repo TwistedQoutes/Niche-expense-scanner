@@ -2,12 +2,14 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { AiPanel } from '@/components/leads/AiPanel';
 import { LeadActions } from '@/components/leads/LeadActions';
 import { QuoteFromLead } from '@/components/quotes/QuoteFromLead';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { AppError } from '@/lib/api/errors';
 import { requireAuth } from '@/lib/auth/context';
+import { aiEnabled } from '@/lib/ai/client';
 import { formatDateTimeLabel, formatRelative } from '@/lib/dates';
 import { columnFor } from '@/lib/leads/pipeline';
 import { getLead } from '@/lib/leads/repository';
@@ -139,6 +141,26 @@ export default async function LeadPage(props: { params: Promise<{ id: string }> 
                 leadId={lead.id}
                 status={lead.status}
                 converted={lead.customerId !== null}
+              />
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader title="AI qualification" />
+            <div className="p-4">
+              <AiPanel
+                leadId={lead.id}
+                aiConfigured={aiEnabled()}
+                qualification={{
+                  score: lead.aiScore,
+                  summary: lead.aiSummary,
+                  intent: lead.aiIntent,
+                  urgency: lead.aiUrgency,
+                  recommendedAction: lead.aiRecommendedAction,
+                  suggestedResponse: lead.aiSuggestedResponse,
+                  qualifiedAt: lead.aiQualifiedAt?.toISOString() ?? null,
+                  model: lead.aiModel,
+                }}
               />
             </div>
           </Card>
