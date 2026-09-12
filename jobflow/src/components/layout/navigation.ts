@@ -40,7 +40,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: '/dashboard', label: 'Dashboard', primary: true, built: true },
       { href: '/leads', label: 'Leads', primary: true, built: true },
       { href: '/customers', label: 'Customers', built: true },
-      { href: '/quotes', label: 'Quotes', primary: true, built: false },
+      { href: '/quotes', label: 'Quotes', primary: true, built: true },
     ],
   },
   {

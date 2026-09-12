@@ -21,10 +21,31 @@ describe('session tokens', () => {
 
   it('rejects a tampered signature', async () => {
     const token = await createSessionToken(PAYLOAD);
-    // Flip the last character of the signature.
-    const forged = `${token.slice(0, -1)}${token.at(-1) === 'A' ? 'B' : 'A'}`;
+    const [header, payload, signature] = token.split('.') as [string, string, string];
 
-    await expect(verifySessionToken(forged)).resolves.toBeNull();
+    /*
+     * Flip a character in the MIDDLE of the signature, not the last one.
+     *
+     * A 32-byte HMAC encodes to 43 base64url characters, which carry 258 bits
+     * for 256 bits of signature — so the final character has only two
+     * significant bits and four characters decode to identical bytes. Flipping
+     * it therefore sometimes produces a *different string that is the same
+     * signature*, and the token still verifies. An earlier version of this test
+     * did exactly that and passed only by luck of the random key.
+     *
+     * Middle characters carry six significant bits each, so changing one always
+     * changes the signature.
+     */
+    const index = Math.floor(signature.length / 2);
+    const original = signature[index]!;
+    const forgedSignature =
+      signature.slice(0, index) + (original === 'A' ? 'B' : 'A') + signature.slice(index + 1);
+
+    expect(forgedSignature).not.toBe(signature);
+
+    await expect(
+      verifySessionToken(`${header}.${payload}.${forgedSignature}`),
+    ).resolves.toBeNull();
   });
 
   it('rejects a token signed with a different secret', async () => {

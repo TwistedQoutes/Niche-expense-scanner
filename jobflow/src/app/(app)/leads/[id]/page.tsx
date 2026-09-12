@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { LeadActions } from '@/components/leads/LeadActions';
+import { QuoteFromLead } from '@/components/quotes/QuoteFromLead';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { AppError } from '@/lib/api/errors';
@@ -28,6 +29,13 @@ export default async function LeadPage(props: { params: Promise<{ id: string }> 
     if (error instanceof AppError && error.code === 'not_found') notFound();
     throw error;
   }
+
+  // Only active services can be quoted; an inactive one is retired on purpose.
+  const services = await auth.db.service.findMany({
+    where: { active: true },
+    select: { id: true, name: true, unitSizeSqFt: true },
+    orderBy: [{ position: 'asc' }, { name: 'asc' }],
+  });
 
   const column = columnFor(lead.status);
   const name = [lead.firstName, lead.lastName].filter(Boolean).join(' ');
@@ -135,6 +143,18 @@ export default async function LeadPage(props: { params: Promise<{ id: string }> 
             </div>
           </Card>
 
+          <Card>
+            <CardHeader title="Quote" />
+            <div className="p-4">
+              <QuoteFromLead
+                leadId={lead.id}
+                customerId={lead.customerId}
+                services={services}
+                defaultTitle={lead.serviceRequested}
+              />
+            </div>
+          </Card>
+
           {lead.customer ? (
             <Card>
               <CardHeader title="Customer" />
@@ -154,13 +174,18 @@ export default async function LeadPage(props: { params: Promise<{ id: string }> 
               <CardHeader title="Quotes" />
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {lead.quotes.map((quote) => (
-                  <li key={quote.id} className="flex items-center justify-between gap-2 px-4 py-3">
-                    <span className="text-sm text-slate-700 dark:text-slate-300">
-                      {quote.number}
-                    </span>
-                    <span className="tabular text-sm text-slate-500 dark:text-slate-400">
-                      {formatCents(quote.totalCents, currency)}
-                    </span>
+                  <li key={quote.id}>
+                    <Link
+                      href={`/quotes/${quote.id}`}
+                      className="flex items-center justify-between gap-2 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                    >
+                      <span className="tabular text-sm text-slate-700 dark:text-slate-300">
+                        {quote.number}
+                      </span>
+                      <span className="tabular text-sm text-slate-500 dark:text-slate-400">
+                        {formatCents(quote.totalCents, currency)}
+                      </span>
+                    </Link>
                   </li>
                 ))}
               </ul>

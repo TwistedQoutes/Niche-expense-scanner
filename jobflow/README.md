@@ -18,9 +18,10 @@ LEAD → AI QUALIFICATION → CUSTOMER → PROPERTY → ESTIMATE → QUOTE
 
 ## Where this is up to
 
-The build is phased. **Phases 1–5 are complete and verified**: project setup,
+The build is phased. **Phases 1–6 are complete and verified**: project setup,
 the full database schema, multi-tenancy, authentication, the dashboard shell,
-the lead pipeline and CRM, and the services catalogue and pricing engine.
+the lead pipeline and CRM, the services catalogue and pricing engine, and
+professional quotes a customer can accept without an account.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -29,10 +30,10 @@ the lead pipeline and CRM, and the services catalogue and pricing engine.
 | 3 | Dashboard, navigation, UI components | ✅ Shell done |
 | 4 | Customers, leads, CRM, Kanban pipeline | ✅ Done |
 | 5 | Services, pricing engine, quote calculator | ✅ Done |
-| 6 | Quote generation, public quote pages, acceptance | Next |
-| 7 | AI lead qualification, AI responses | Planned |
+| 6 | Quote generation, public quote pages, acceptance | ✅ Done |
+| 7 | AI lead qualification, AI responses | Next |
 | 8 | Email/SMS, Twilio, Resend, automated follow-up | Planned |
-| 9 | Calendar, appointments, jobs | Planned |
+| 9 | Calendar, appointments, jobs | Jobs created on acceptance |
 | 10 | Review requests, customer reactivation | Planned |
 | 11 | Stripe billing, subscriptions, usage limits | Usage metering done |
 | 12 | Analytics, admin dashboard | Planned |
@@ -166,6 +167,59 @@ over without a scheduled job.
 A past-due or cancelled subscription falls back to FREE rather than locking the
 account. Locking someone out of their own customer list over a failed card turns
 a billing problem into a cancellation.
+
+---
+
+## Quotes
+
+A quote has two identities, and keeping them apart is the whole security story
+of the public page:
+
+- **`number`** (`Q-1001`) is for people. Sequential per business, because a
+  customer ringing about "quote 1004" needs that to mean something.
+- **`publicId`** is a credential. 128 random bits, because the quote page has no
+  login — the id in the URL is the only thing between a customer's price and
+  anyone who guesses a URL. A sequential public id would mean `/quote/1002`
+  reveals the next business's quote.
+
+`resolvePublicQuote` is the one place in the product where a tenant is chosen by
+something a stranger sent. That is safe because the `publicId` *identifies*
+exactly one organization rather than letting the caller pick one: the lookup runs
+unscoped, and everything after it runs on a tenant client pinned to whatever
+organization the quote turned out to belong to. Passing an organization id
+alongside the quote id is the design that goes wrong, and `src/lib/quotes/public.ts`
+says so, so nobody reintroduces it.
+
+**A sent quote is immutable.** The customer has a copy of specific numbers;
+changing them underneath would mean the price they accept is not the price they
+were shown. Editing or deleting anything past DRAFT is refused, and a change
+means a new quote. The whole calculation is frozen onto the row — inputs and
+outputs — and line items copy the service's name and price rather than joining
+to it, so next year's rate changes cannot rewrite last year's offer.
+
+**Expiry is derived, never stored.** Nothing sweeps the table flipping rows to
+EXPIRED, so a quote past its date still *says* SENT. If the accept path trusted
+the stored status a customer could accept a three-month-old price, so every read
+and every write asks `isExpired()` instead.
+
+**Accepting is idempotent.** It settles the quote, creates the job, notifies the
+business and moves the lead to Won — all at once, because a quote marked accepted
+with no job behind it is a job nobody does. A double-tap on a phone, or a link
+preview hitting the endpoint, returns the first outcome rather than producing a
+second job. Verified live: three accepts, one job.
+
+**A draft is not an offer.** Its `publicId` exists from creation, so the public
+page and the respond endpoint both refuse anything still in DRAFT — otherwise a
+link shared early would show a price the owner had not finished deciding on.
+
+The page itself is `noindex, nofollow, nocache`: a quote URL is a credential, and
+an indexed one is a leaked one. What it shows is an explicit allow-list of
+business fields, not a `select` with a few columns removed — a public page is the
+wrong place to discover that a column added next year was sensitive.
+
+Delivery by email and SMS arrives with the messaging phase. Until then `send`
+is honest about what it does: it opens the quote for a response and hands the
+owner the link. A link an owner texts themselves is a working quote today.
 
 ---
 
@@ -317,6 +371,25 @@ What it provides:
 | Delete a rule (ADMIN) | `DELETE /api/pricing-rules/[id]` |
 | Change workspace defaults (ADMIN) | `PATCH /api/pricing/defaults` |
 | Price a job without saving it | `POST /api/pricing/calculate` |
+
+### Quotes
+
+| Operation | Route |
+| --- | --- |
+| List quotes | `GET /api/quotes` |
+| Create a draft | `POST /api/quotes` |
+| Read one quote | `GET /api/quotes/[id]` |
+| Edit a draft | `PATCH /api/quotes/[id]` |
+| Delete a draft | `DELETE /api/quotes/[id]` |
+| Open it for a response | `POST /api/quotes/[id]/send` |
+
+### Public — no session
+
+| Operation | Route |
+| --- | --- |
+| The customer's quote page | `GET /quote/[publicId]` |
+| Record that it was opened | `POST /api/public/quotes/[publicId]/view` |
+| Accept, decline, ask for changes | `POST /api/public/quotes/[publicId]/respond` |
 
 Security properties worth knowing about:
 
@@ -475,7 +548,8 @@ jobflow/
 │   │   │   ├── customers/         list and full CRM detail
 │   │   │   ├── dashboard/
 │   │   │   ├── leads/             pipeline board, new, detail
-│   │   │   └── pricing-settings/  defaults, catalogue, rules, calculator
+│   │   │   ├── pricing-settings/  defaults, catalogue, rules, calculator
+│   │   │   └── quotes/            list and detail
 │   │   ├── (auth)/                login, signup, password reset, verification
 │   │   ├── api/
 │   │   │   ├── auth/              signup, login, logout, me, reset, verify
@@ -484,8 +558,11 @@ jobflow/
 │   │   │   ├── leads/             list, create, move, convert, notes
 │   │   │   ├── pricing/           defaults, calculate
 │   │   │   ├── pricing-rules/     list, create, update, delete
+│   │   │   ├── public/            unauthenticated quote view and response
+│   │   │   ├── quotes/            list, create, read, update, send
 │   │   │   └── services/          list, create, update, delete
 │   │   ├── legal/                 terms, privacy
+│   │   ├── quote/[publicId]/      the customer's quote page — no session
 │   │   ├── error.tsx              error boundary
 │   │   ├── not-found.tsx
 │   │   ├── globals.css            design tokens
@@ -496,6 +573,7 @@ jobflow/
 │   │   ├── layout/                sidebar, bottom nav, top bar, nav map
 │   │   ├── leads/                 pipeline board, card, actions, new form
 │   │   ├── pricing/               defaults form, service editor, calculator
+│   │   ├── quotes/                send panel, customer response, quote-from-lead
 │   │   ├── legal/
 │   │   └── ui/                    Button, Card, Field, Alert, Badge,
 │   │                              StatCard, EmptyState, Skeleton, Toast
@@ -507,7 +585,8 @@ jobflow/
 │   │   ├── customers/repository.ts CRM reads and rollups
 │   │   ├── db/                    client + tenant isolation
 │   │   ├── leads/                 pipeline definition, ordering, repository
-│   │   ├── pricing/engine.ts      the pure pricing calculation
+│   │   ├── pricing/               the pure calculation, and input resolution
+│   │   ├── quotes/                numbering, public scope, lifecycle
 │   │   ├── email/
 │   │   ├── organizations/         workspace provisioning
 │   │   ├── services/templates.ts  starter catalogue per trade
@@ -562,11 +641,12 @@ To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 npm test
 ```
 
-195 tests covering tenant isolation, session tokens and revocation, the
-redirect-loop regression, the pricing engine (including the specification's own
-worked example, margin-versus-markup, rules, floors, tax and overrides),
-pipeline ordering and respacing, plan resolution, money arithmetic, request
-validation, plan limits, rate limiting, workspace slugs and the service
+223 tests covering tenant isolation, session tokens and revocation, the
+redirect-loop regression, quote expiry and response gating, public-id entropy,
+document numbering under a race, the pricing engine (including the
+specification's own worked example, margin-versus-markup, rules, floors, tax and
+overrides), pipeline ordering and respacing, plan resolution, money arithmetic,
+request validation, plan limits, rate limiting, workspace slugs and the service
 catalogue.
 
 The most important file is `tests/tenant-isolation.test.ts`. Isolation is the one
