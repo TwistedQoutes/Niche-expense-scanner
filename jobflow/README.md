@@ -18,7 +18,7 @@ LEAD → AI QUALIFICATION → CUSTOMER → PROPERTY → ESTIMATE → QUOTE
 
 ## Where this is up to
 
-The build is phased. **Phases 1–11 are complete and verified**: project setup,
+The build is phased. **Phases 1–12 are complete and verified**: project setup,
 the full database schema, multi-tenancy, authentication, the dashboard shell,
 the lead pipeline and CRM, the services catalogue and pricing engine,
 professional quotes a customer can accept without an account, AI lead
@@ -28,7 +28,8 @@ jobs and a calendar in the business's own timezone, and the repeat-business
 loop: tracked review requests, reactivation of lapsed customers, and the
 settings screen the rest of it depends on, and Stripe billing — hosted checkout,
 a signature-verified webhook, and plan limits that follow what the workspace has
-actually paid for.
+actually paid for — and analytics, with a platform admin view for whoever runs
+JobFlow itself.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -43,8 +44,8 @@ actually paid for.
 | 9 | Calendar, appointments, jobs | ✅ Done |
 | 10 | Review requests, customer reactivation | ✅ Done |
 | 11 | Stripe billing, subscriptions, usage limits | ✅ Done |
-| 12 | Analytics, admin dashboard | Next |
-| 13 | Landing page, onboarding, demo mode | Landing page and settings done |
+| 12 | Analytics, admin dashboard | ✅ Done |
+| 13 | Landing page, onboarding, demo mode | Next — landing page and settings done |
 | 14 | Testing, security, performance, deployment | Ongoing |
 
 The navigation in `src/components/layout/navigation.ts` is the whole product map,
@@ -716,6 +717,98 @@ does not cost the customer the days they were promised.
 
 ---
 
+## Analytics
+
+### The charts are server-rendered SVG, and the colour was computed
+
+No chart library and no client JavaScript: the plot is SVG, the numbers come from
+the same tenant-scoped client as everything else, and the page works with scripting
+off.
+
+The palette was not chosen by eye. The emerald ramp was run through a validator
+against **this app's own surfaces** — white in light, slate-900 in dark — and the
+steps that ship are the ones that passed:
+
+- **One accent for single-series charts** (`#059669` light, `#0ba573` dark), each
+  inside its mode's lightness band and over 3:1 against its surface.
+- **An ordinal ramp for the funnel**, one hue getting darker down the stages, with
+  a visible lightness gap between each. The light ramp starts at the lightest step
+  that still clears 2:1 on white; the dark ramp stops at the darkest that clears
+  2:1 on slate-900. A stage that fades into the card is a stage nobody reads.
+
+Dark is *selected*, not flipped: a step that reads well on white is either
+invisible or glaring on near-black, so the two modes are separately stepped from
+the same ramp and separately validated.
+
+### The encoding follows the data's job
+
+- **Funnel stages are ordered**, so they get the ordinal ramp. Five different hues
+  would spend the identity channel on information the bar lengths already carry.
+- **Lead sources are not ordered** — they are just names — so every bar is the same
+  colour. Shading each one darker-where-bigger would double-encode length as hue
+  and imply a ranking that does not exist.
+- **A single series gets no legend.** The heading says what is plotted; a
+  one-swatch box would only restate it.
+- **One value is labelled directly**, on the endpoint. A number on every point is
+  chaos and goes unread; the axis and the table carry the rest.
+
+Text never wears a data colour. Identity comes from a swatch beside the label,
+because these ramp steps are unreadable as type.
+
+### Axis labels are HTML, not SVG text
+
+Text inside a `viewBox` scales with it, so an 11px label on a 720-unit plot renders
+at about 5px once the card is phone width — present, and unreadable. The SVG holds
+the plot; the type sits outside it and stays the size it was written at.
+
+The months are labelled counting **back** from the newest, so the current month —
+the one carrying the direct label — always gets an axis label. Counting forwards
+drops it on an even-length series, which is exactly the month a reader is looking
+for.
+
+### Every chart has a table
+
+Not a fallback — the guarantee. `Show the numbers` under each trend carries every
+plotted value, so nothing is reachable only through colour: not for a screen
+reader, not in a printout, and not for the one reader in twelve the hues do not
+work for.
+
+### The figures are honest about what they are
+
+- **The funnel counts cumulative reach**, not "currently sitting in this stage". A
+  completed job still counts as having been quoted — otherwise the funnel appears
+  to empty as the business succeeds.
+- **Speed is a median, not a mean**, and the screen says so. One quote that sat
+  unanswered for three months drags an average past the point of being useful.
+- **A month with no activity still appears, at zero.** A trend that silently skips
+  the quiet months makes a seasonal business look like it grew when it only stopped
+  reporting.
+- **A delta against a period that had nothing is omitted, not shown as 0%.**
+
+---
+
+## Platform admin
+
+`/admin` is for whoever runs JobFlow, not for the businesses on it. Three things
+keep it that way:
+
+- **`requirePlatformAdmin()` is the only door**, and it answers a signed-in
+  customer with a **404**, not a 403 — the surface is not advertised to somebody
+  who cannot use it. The nav entry is hidden by the same flag rather than shown and
+  refused.
+- **It reads aggregates and billing state only.** That a workspace exists, what it
+  pays, whether it is active, and how many leads and jobs it has. There is no route
+  from it into anybody's leads, customers or messages — running the platform does
+  not require reading its customers' mail. The page says so out loud, and a live
+  test asserts that no customer or lead name appears on it.
+- **MRR is computed from list prices**, so a discount or promotion code is not
+  reflected. It is a health indicator, not an accounting figure — Stripe is the
+  authority on money, and a number in an admin panel that looks like revenue but
+  disagrees with the payment processor is worse than no number. The screen says
+  that too.
+
+---
+
 ## Multi-tenancy
 
 Every business's rows live in the same tables, separated by `organizationId`.
@@ -878,6 +971,10 @@ date and a time of day, never an instant — see [Scheduling](#scheduling).
 | --- | --- |
 | Start a hosted checkout | `POST /api/billing/checkout` |
 | Open Stripe's billing portal | `POST /api/billing/portal` |
+
+Analytics and the platform admin view are pages rather than API routes — both are
+server-rendered and read through the same tenant-scoped client as every other
+screen, so there is no separate reporting endpoint to secure.
 
 Both are OWNER only, and both take the organization from the verified session
 rather than the body — so a caller cannot buy a plan for, or manage the billing
@@ -1087,6 +1184,8 @@ jobflow/
 │   │   ├── (app)/                 signed-in shell; authorises in its layout
 │   │   │   ├── customers/         list and full CRM detail
 │   │   │   ├── dashboard/
+│   │   │   ├── admin/             every workspace — platform admins only
+│   │   │   ├── analytics/         trend, funnel, sources, speed
 │   │   │   ├── automations/       follow-up sequences, on and off
 │   │   │   ├── billing/           plan, usage this month, invoices
 │   │   │   ├── calendar/          day and week, in the business's timezone
@@ -1131,6 +1230,7 @@ jobflow/
 │   │   ├── auth/                  sign-in, sign-up, reset, verify forms
 │   │   ├── automations/           the on/off switch and what it warns about
 │   │   ├── billing/               plan actions, usage bars
+│   │   ├── charts/                validated palette, trend, funnel, bar list
 │   │   ├── jobs/                  schedule form, status actions, tones
 │   │   ├── layout/                sidebar, bottom nav, top bar, nav map
 │   │   ├── leads/                 pipeline board, card, actions, AI panel
@@ -1144,7 +1244,7 @@ jobflow/
 │   │                              StatCard, EmptyState, Skeleton, Toast
 │   ├── lib/
 │   │   ├── ai/                    client, guardrails, qualification
-│   │   ├── analytics/summary.ts   dashboard figures, one parallel burst
+│   │   ├── analytics/             dashboard summary, reports, platform totals
 │   │   ├── api/                   errors, handler, response, rate-limit
 │   │   ├── automations/           triggers, cancellation, the queue worker
 │   │   ├── jobs/repository.ts     job lifecycle and the completion rollups
@@ -1236,6 +1336,10 @@ trapping, popover positioning) is needed.
   Stripe-hosted, which keeps the application out of PCI scope
 - **Buying a plan is OWNER only**, and the workspace comes from the session rather
   than the request
+- **The platform admin surface answers a customer with a 404**, not a 403, and its
+  nav entry is hidden rather than shown and refused
+- **Platform admin reads aggregates and billing only** — no route from it into any
+  business's leads, customers or messages
 
 To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 
@@ -1247,7 +1351,7 @@ To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 npm test
 ```
 
-419 tests covering tenant isolation, session tokens and revocation, the
+428 tests covering tenant isolation, session tokens and revocation, the
 redirect-loop regression, the AI guardrails and their false-positive behaviour,
 AI absence and bounded failure, quote expiry and response gating, public-id
 entropy, document numbering under a race, the pricing engine (including the
@@ -1257,9 +1361,9 @@ carrier opt-out keywords, template rendering, inbound number resolution,
 timezone-aware booking across daylight-saving boundaries, appointment overlap,
 job state transitions, review-link and redirect-target safety, review token
 entropy, Stripe signature verification and replay windows, subscription status
-mapping, plan resolution after a billing failure, money arithmetic, request
-validation, plan limits, rate limiting, workspace slugs and the service
-catalogue.
+mapping, plan resolution after a billing failure, chart month bucketing and the
+validated palette contract, money arithmetic, request validation, plan limits, rate
+limiting, workspace slugs and the service catalogue.
 
 The most important file is `tests/tenant-isolation.test.ts`. Isolation is the one
 property whose failure is unrecoverable — a customer list shown to the wrong

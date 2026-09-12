@@ -92,6 +92,15 @@ export type CreateQuoteArgs = {
   breakdown: PricingBreakdown;
   /** The inputs that produced the breakdown, frozen for the audit trail. */
   pricingInput: Record<string, unknown>;
+  /**
+   * The service the price came from, if any.
+   *
+   * Passed explicitly rather than dug out of `pricingInput`, which is an untyped
+   * blob kept for the audit trail. This id travels quote line → accepted job →
+   * the "services that earn" report, so it wants to be a named argument a caller
+   * can see they are responsible for.
+   */
+  serviceId?: string | null;
   items?: {
     serviceId?: string | null;
     name: string;
@@ -123,7 +132,15 @@ export async function createQuote(db: TenantClient, args: CreateQuoteArgs) {
       ? args.items
       : [
           {
-            serviceId: null,
+            /*
+             * The service the price came from, carried onto the line.
+             *
+             * Not cosmetic: this id is what the accepted quote passes to the job,
+             * and the job is what the "services that earn" report groups by. Left
+             * null — as it was — every job in the product attributed to "Other
+             * work" and that report could never say anything.
+             */
+            serviceId: args.serviceId ?? null,
             name: args.serviceName ?? args.title ?? 'Service',
             description: args.summary ?? null,
             quantityMilli: 1000,

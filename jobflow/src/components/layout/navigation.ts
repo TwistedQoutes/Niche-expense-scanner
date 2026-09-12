@@ -17,6 +17,15 @@ export type NavItem = {
   /** Requires ADMIN or above. */
   admin?: boolean;
   /**
+   * Only for whoever runs JobFlow itself, not for its customers.
+   *
+   * A separate flag from `admin`: a business owner is an admin of their own
+   * workspace and must never see this. The entry is hidden rather than shown and
+   * refused, which matches how `/admin` answers a prober — with a not-found, so
+   * the surface is not advertised to somebody who cannot use it.
+   */
+  platformAdmin?: boolean;
+  /**
    * Whether the screen behind this entry exists yet.
    *
    * The map below is the finished product, written down once so each phase
@@ -56,7 +65,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: '/automations', label: 'Automations', built: true },
       { href: '/reviews', label: 'Reviews', built: true },
-      { href: '/analytics', label: 'Analytics', built: false },
+      { href: '/analytics', label: 'Analytics', built: true },
     ],
   },
   {
@@ -66,6 +75,10 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: '/settings', label: 'Settings', built: true },
       { href: '/billing', label: 'Billing', admin: true, built: true },
     ],
+  },
+  {
+    title: 'Platform',
+    items: [{ href: '/admin', label: 'All workspaces', platformAdmin: true, built: true }],
   },
 ];
 

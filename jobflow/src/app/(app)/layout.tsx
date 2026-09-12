@@ -34,7 +34,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       />
 
       <div className="flex flex-1">
-        <Sidebar canSeeAdminItems={hasRole(auth, 'ADMIN')} />
+        <Sidebar
+          canSeeAdminItems={hasRole(auth, 'ADMIN')}
+          isPlatformAdmin={auth.user.isPlatformAdmin}
+        />
 
         {/* The bottom padding clears the mobile nav bar, which is fixed. */}
         <main className="min-w-0 flex-1 pb-20 lg:pb-0">{children}</main>

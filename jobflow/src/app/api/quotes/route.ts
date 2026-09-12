@@ -99,6 +99,9 @@ export const POST = withRoute(async (request) => {
     breakdown,
     pricingInput: input as unknown as Record<string, unknown>,
     items: body.items,
+    // Carried through so the accepted job knows which service it was, which is
+    // what makes the services report able to attribute revenue at all.
+    serviceId: body.pricing.serviceId ?? null,
     serviceName,
     actorUserId: auth.user.id,
   });

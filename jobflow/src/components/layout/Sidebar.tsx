@@ -13,7 +13,13 @@ import { cn } from '@/lib/cn';
  * page. Everything it renders is static, so this costs one small bundle and no
  * data fetching.
  */
-export function Sidebar({ canSeeAdminItems }: { canSeeAdminItems: boolean }) {
+export function Sidebar({
+  canSeeAdminItems,
+  isPlatformAdmin = false,
+}: {
+  canSeeAdminItems: boolean;
+  isPlatformAdmin?: boolean;
+}) {
   const pathname = usePathname();
   const current = activeHref(pathname);
 
@@ -24,7 +30,10 @@ export function Sidebar({ canSeeAdminItems }: { canSeeAdminItems: boolean }) {
     >
       {NAV_SECTIONS.map((section) => {
         const items = section.items.filter(
-          (item) => item.built && (!item.admin || canSeeAdminItems),
+          (item) =>
+            item.built &&
+            (!item.admin || canSeeAdminItems) &&
+            (!item.platformAdmin || isPlatformAdmin),
         );
         // A section whose every item is hidden by role should not leave its
         // heading behind as a label over nothing.
