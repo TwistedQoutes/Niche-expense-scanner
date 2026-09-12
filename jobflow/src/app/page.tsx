@@ -1,5 +1,7 @@
 import Link from 'next/link';
+import { connection } from 'next/server';
 
+import { DemoButton } from '@/components/marketing/DemoButton';
 import { Button } from '@/components/ui/Button';
 import { INDUSTRIES } from '@/lib/services/templates';
 import { PLANS } from '@/lib/billing/plans';
@@ -8,12 +10,19 @@ import { getPublicConfig } from '@/lib/env';
 /**
  * The marketing page.
  *
- * Statically rendered — it reads no database and no session, so it costs
- * nothing to serve and stays up even when the application does not. That is
- * deliberate: the page that sells the product should not depend on the product.
+ * It reads no database and no session, so it stays up even when the application
+ * does not — the page that sells the product should not depend on the product.
  *
- * The argument it makes is one thing, repeated: a missed call is a lost job.
- * Everything else on the page is evidence for that.
+ * It is **not** statically prerendered, though, and that is a deliberate trade.
+ * `DEMO_MODE` decides whether the page offers a demo, and a statically rendered
+ * page inlines `process.env` at build time: a deployment that switched the flag on
+ * afterwards would keep serving a page with no demo button until somebody
+ * happened to redeploy, with nothing to indicate why. `connection()` moves that
+ * read to request time. The cost is one cheap server render — no database, no
+ * session, no third-party call — which is a good price for a flag that is right.
+ *
+ * The argument the page makes is one thing, repeated: a missed call is a lost job.
+ * Everything else on it is evidence for that.
  */
 
 const PROBLEMS = [
@@ -100,8 +109,12 @@ const FAQS = [
   },
 ];
 
-export default function LandingPage() {
-  const { supportEmail, trialDays } = getPublicConfig();
+export default async function LandingPage() {
+  // Request time, so the flags below are this deployment's current values rather
+  // than whatever was set when the image was built.
+  await connection();
+
+  const { supportEmail, trialDays, demoMode } = getPublicConfig();
 
   return (
     <div className="bg-white dark:bg-slate-950">
@@ -148,15 +161,20 @@ export default function LandingPage() {
               Start free
             </Button>
           </Link>
-          <Link href="#how-it-works" className="w-full sm:w-auto">
-            <Button size="lg" variant="secondary" className="w-full sm:w-auto">
-              Watch how it works
-            </Button>
-          </Link>
+          {demoMode ? (
+            <DemoButton className="w-full sm:w-auto" />
+          ) : (
+            <Link href="#how-it-works" className="w-full sm:w-auto">
+              <Button size="lg" variant="secondary" className="w-full sm:w-auto">
+                Watch how it works
+              </Button>
+            </Link>
+          )}
         </div>
 
         <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
           {trialDays > 0 ? `${trialDays}-day trial of everything. ` : ''}No card required.
+          {demoMode ? ' The demo needs no account at all.' : ''}
         </p>
       </section>
 

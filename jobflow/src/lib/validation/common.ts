@@ -106,7 +106,14 @@ export const bpsSchema = z
   .number()
   .int('Use basis points — 3000 for 30%.')
   .min(0, 'That cannot be negative.')
-  .max(9_900, 'A margin of 99% or more is not a real price.');
+  /*
+   * 99% is the ceiling, and it is inclusive. The message used to say "99% or
+   * more is not a real price" while the rule accepted exactly 99% — a promise the
+   * validation did not keep, and the kind of mismatch somebody eventually files a
+   * bug about. The limit exists to keep `priceForMargin` away from dividing by
+   * zero at 100%, not to police anybody's pricing.
+   */
+  .max(9_900, 'A margin has to be under 100%.');
 
 export const dateTimeSchema = z
   .string()

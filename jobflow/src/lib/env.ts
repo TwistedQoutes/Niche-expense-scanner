@@ -111,6 +111,20 @@ const serverEnvSchema = z.object({
   TRIAL_DAYS: z.coerce.number().int().min(0).max(90).default(14),
 
   /**
+   * Whether a visitor can spin up a seeded demo workspace without signing up.
+   *
+   * Off unless switched on. It creates real rows in the real database, and a
+   * deployment that did not ask for it should not have an unauthenticated route
+   * that writes.
+   */
+  DEMO_MODE: z
+    .enum(['on', 'off'])
+    .default('off')
+    .transform((value) => value === 'on'),
+  /** How long a demo workspace lives before the daily sweep removes it. */
+  DEMO_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+
+  /**
    * Shared secret for the automation worker endpoint. Without it,
    * /api/cron/automations refuses to run — an unauthenticated endpoint that
    * sends SMS on demand is someone else's marketing budget.
@@ -189,6 +203,8 @@ export type PublicConfig = {
   /** Browser-safe Maps key. Referrer-restricted in the Google console. */
   googleMapsBrowserKey: string | null;
   stripePublishableKey: string | null;
+  /** Whether the landing page should offer a demo. */
+  demoMode: boolean;
 };
 
 export function getPublicConfig(): PublicConfig {
@@ -200,6 +216,9 @@ export function getPublicConfig(): PublicConfig {
     trialDays: Number.isFinite(trialDays) && trialDays >= 0 ? trialDays : 14,
     googleMapsBrowserKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || null,
     stripePublishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || null,
+    // Read from the raw variable rather than through getEnv(), because the
+    // landing page is statically rendered and must not pull in the server schema.
+    demoMode: process.env.DEMO_MODE === 'on',
   };
 }
 

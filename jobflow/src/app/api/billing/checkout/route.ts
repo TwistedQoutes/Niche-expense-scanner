@@ -36,6 +36,19 @@ export const POST = withRoute(async (request) => {
   const auth = await requireRole(Role.OWNER);
   enforceRateLimit(RATE_LIMITS.billing, auth.organization.id);
 
+  /*
+   * Checked before anything else, including whether Stripe is configured at all.
+   *
+   * A guard that only applies on deployments with billing keys set is a guard a
+   * configuration change can switch off, and this one exists to stop somebody
+   * paying for a workspace that is deleted within the day.
+   */
+  if (auth.organization.isDemo) {
+    throw conflict(
+      'This is a demo workspace, so there is nothing to subscribe to. Sign up for a real one to pick a plan.',
+    );
+  }
+
   if (!billingEnabled()) {
     throw notImplemented(
       'Billing is not configured on this deployment, so there is nothing to buy yet.',

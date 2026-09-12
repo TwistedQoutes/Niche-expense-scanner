@@ -48,11 +48,14 @@ export default async function DashboardPage() {
       </div>
 
       {auth.organization.onboardedAt === null ? (
-        <Alert tone="info" title="Your workspace is ready">
+        <Alert tone="info" title="Four questions and you are set up">
           <p>
-            We have set up the starter services and pricing defaults for your trade. Review them in
-            Settings once lead capture is switched on.
+            Your trade, your timezone, what you charge, and where customers leave reviews. Nothing
+            here is permanent — it all lives in Settings afterwards.
           </p>
+          <Link href="/onboarding" className="mt-2 inline-block">
+            <Button size="sm">Set up my workspace</Button>
+          </Link>
         </Alert>
       ) : null}
 

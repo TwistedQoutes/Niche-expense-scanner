@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 
 import { BottomNav } from '@/components/layout/BottomNav';
+import { DemoBanner } from '@/components/layout/DemoBanner';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { TopBar } from '@/components/layout/TopBar';
 import { hasRole, redirectForFailure, resolveAuth } from '@/lib/auth/context';
@@ -27,6 +28,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-dvh flex-col">
+      {auth.organization.isDemo ? <DemoBanner /> : null}
+
       <TopBar
         organizationName={auth.organization.name}
         userName={auth.user.name}

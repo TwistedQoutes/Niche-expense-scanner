@@ -2,6 +2,7 @@ import { AppError } from '@/lib/api/errors';
 import { withRoute } from '@/lib/api/handler';
 import { jsonOk } from '@/lib/api/response';
 import { runDueAutomations } from '@/lib/automations/worker';
+import { deleteExpiredDemos } from '@/lib/demo/seed';
 import { runReactivationSweepForAll } from '@/lib/reviews/repository';
 import { getEnv } from '@/lib/env';
 
@@ -57,7 +58,21 @@ async function handle(request: Request): Promise<Response> {
   const wantsSweep = new URL(request.url).searchParams.get('sweep') === '1';
   const sweep = wantsSweep ? await runReactivationSweepForAll() : null;
 
-  return jsonOk({ ok: true, ...report, ...(sweep ? { sweep } : {}) });
+  /*
+   * Expired demo workspaces go with the same daily pass. Without it every curious
+   * visitor leaves a permanent workspace behind, and within a month the
+   * platform's own numbers are mostly people who looked once.
+   */
+  const demos = wantsSweep
+    ? await deleteExpiredDemos({ ttlHours: env.DEMO_TTL_HOURS })
+    : null;
+
+  return jsonOk({
+    ok: true,
+    ...report,
+    ...(sweep ? { sweep } : {}),
+    ...(demos ? { demos } : {}),
+  });
 }
 
 /**

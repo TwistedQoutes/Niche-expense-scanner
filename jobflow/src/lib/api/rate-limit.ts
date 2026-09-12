@@ -67,6 +67,11 @@ export const RATE_LIMITS = {
   publicQuoteAction: { name: 'public-quote-action', limit: 20, windowSeconds: 900 },
   /** The customer intake form is public and writes a lead on every success. */
   intake: { name: 'intake', limit: 10, windowSeconds: 900 },
+  /**
+   * Starting a demo provisions a whole seeded workspace, so it is the cheapest
+   * request in the product to abuse and the most expensive to serve. Tight.
+   */
+  demo: { name: 'demo', limit: 3, windowSeconds: 3600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**

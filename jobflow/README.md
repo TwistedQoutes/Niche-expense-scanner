@@ -18,7 +18,7 @@ LEAD → AI QUALIFICATION → CUSTOMER → PROPERTY → ESTIMATE → QUOTE
 
 ## Where this is up to
 
-The build is phased. **Phases 1–12 are complete and verified**: project setup,
+The build is phased. **Phases 1–13 are complete and verified**: project setup,
 the full database schema, multi-tenancy, authentication, the dashboard shell,
 the lead pipeline and CRM, the services catalogue and pricing engine,
 professional quotes a customer can accept without an account, AI lead
@@ -28,8 +28,9 @@ jobs and a calendar in the business's own timezone, and the repeat-business
 loop: tracked review requests, reactivation of lapsed customers, and the
 settings screen the rest of it depends on, and Stripe billing — hosted checkout,
 a signature-verified webhook, and plan limits that follow what the workspace has
-actually paid for — and analytics, with a platform admin view for whoever runs
-JobFlow itself.
+actually paid for, analytics with a platform admin view for whoever runs JobFlow
+itself, and the way in: a four-question setup wizard and a seeded demo workspace
+that cannot touch the real world.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -45,8 +46,8 @@ JobFlow itself.
 | 10 | Review requests, customer reactivation | ✅ Done |
 | 11 | Stripe billing, subscriptions, usage limits | ✅ Done |
 | 12 | Analytics, admin dashboard | ✅ Done |
-| 13 | Landing page, onboarding, demo mode | Next — landing page and settings done |
-| 14 | Testing, security, performance, deployment | Ongoing |
+| 13 | Landing page, onboarding, demo mode | ✅ Done |
+| 14 | Testing, security, performance, deployment | Next — ongoing throughout |
 
 The navigation in `src/components/layout/navigation.ts` is the whole product map,
 with a `built` flag per entry. Unbuilt screens are hidden rather than shown as
@@ -809,6 +810,69 @@ keep it that way:
 
 ---
 
+## Getting started, and the demo
+
+### Four questions, and Skip is always there
+
+Trade, timezone, what you charge, where customers leave reviews. The wizard writes
+the same fields Settings does — it is a guided path through them, not a separate
+store — so a skipped question is a field to fill in later, never a broken
+workspace.
+
+Which is why **Skip is on every step**. A setup flow that will not let you past is
+how a product loses the customer it just acquired, and none of these answers is
+unanswerable tomorrow. Finishing is idempotent and keeps the *first* timestamp:
+walking the wizard again to change a trade should not rewrite when the business
+started.
+
+Changing trade replaces the starter catalogue **only while nothing has been done
+with it**. Once a service has been renamed, repriced or used on a quote it is the
+owner's work; somebody who picked "lawn care" by mistake on Tuesday and fixes it on
+Friday must not lose Wednesday's pricing. The wizard says which happened rather
+than appearing to do nothing.
+
+### A demo that cannot text a stranger
+
+`DEMO_MODE=on` lets a visitor open a seeded workspace with no account. It is off by
+default, because it is an unauthenticated route that writes to the real database.
+
+**A fresh workspace per visitor**, never one shared sandbox: a shared demo is a
+place where one visitor's typing is the next visitor's first impression, and where
+anything typed in — which will include real names and real phone numbers, because
+people test with their own — is visible to strangers.
+
+The risk worth naming is precise. A prospect edits a fake customer, puts their own
+number in, and clicks send. Four things stand in the way:
+
+1. **`sendMessage` refuses to hand anything from a demo workspace to a carrier.**
+   Checked there rather than at each call site, for the same reason the opt-out is:
+   a new caller cannot forget it. The message is still written to the thread, so
+   the product visibly works — but as `QUEUED`, never `SENT`, because nothing was.
+2. **Every seeded contact is fictional by construction** — the 555 exchange
+   reserved for fiction, and `example.test`, which can never be registered. Belt to
+   the braces above.
+3. **Checkout refuses a demo**, before it even checks whether Stripe is
+   configured — a guard that only applies on deployments with billing keys set is
+   a guard a configuration change can switch off.
+4. **The daily sweep deletes demos past `DEMO_TTL_HOURS`**, and its queries carry
+   `isDemo: true` every time, never built up dynamically. The throwaway account
+   goes with it, matched on a `.invalid` domain and only when it is left with no
+   workspace — a real person invited into a demo must not be swept up.
+
+The banner says all of it out loud: made up, nothing sent, gone within a day.
+
+### The landing page reads its flags at request time
+
+It is deliberately **not** statically prerendered, and that is a trade rather than
+an oversight. A static page inlines `process.env` at build time, so a deployment
+that switched `DEMO_MODE` on afterwards would keep serving a page with no demo
+button until somebody happened to redeploy, with nothing to indicate why. Reading
+it at request time costs one cheap server render — no database, no session, no
+third-party call — and the property that actually mattered survives: the page that
+sells the product still does not depend on the product.
+
+---
+
 ## Multi-tenancy
 
 Every business's rows live in the same tables, separated by `organizationId`.
@@ -956,6 +1020,17 @@ What it provides:
 `/api/jobs/[id]/status` names the action in the body rather than the URL, so a
 crew member's tap cannot be replayed out of a browser history. Scheduling takes a
 date and a time of day, never an instant — see [Scheduling](#scheduling).
+
+### Setup and the demo
+
+| Operation | Route |
+| --- | --- |
+| Save one wizard step | `POST /api/onboarding` |
+| Start a seeded demo — no account | `POST /api/demo` |
+
+The demo route is the only unauthenticated write in the product besides the intake
+form, so it is off unless `DEMO_MODE=on`, rate limited to three an hour per
+address, and everything it creates is fictional and temporary.
 
 ### Reviews and settings
 
@@ -1188,6 +1263,7 @@ jobflow/
 │   │   │   ├── analytics/         trend, funnel, sources, speed
 │   │   │   ├── automations/       follow-up sequences, on and off
 │   │   │   ├── billing/           plan, usage this month, invoices
+│   │   │   ├── onboarding/        the four-question setup wizard
 │   │   │   ├── calendar/          day and week, in the business's timezone
 │   │   │   ├── jobs/              list by status, and one job's whole life
 │   │   │   ├── leads/             pipeline board, new, detail
@@ -1204,11 +1280,13 @@ jobflow/
 │   │   │   ├── automations/       enable and disable a sequence
 │   │   │   ├── billing/           hosted checkout and the Stripe portal
 │   │   │   ├── conversations/     manual reply into a thread
+│   │   │   ├── demo/              start a seeded throwaway workspace
 │   │   │   ├── cron/              the automation worker, bearer-authenticated
 │   │   │   ├── customers/         list, create, read, update, delete
 │   │   │   ├── health/            liveness plus a real database round-trip
 │   │   │   ├── jobs/              create, edit, schedule, start, complete
 │   │   │   ├── leads/             list, create, move, convert, notes
+│   │   │   ├── onboarding/        one wizard step at a time
 │   │   │   ├── pricing/           defaults, calculate
 │   │   │   ├── pricing-rules/     list, create, update, delete
 │   │   │   ├── public/            unauthenticated quote view and response
@@ -1231,8 +1309,9 @@ jobflow/
 │   │   ├── automations/           the on/off switch and what it warns about
 │   │   ├── billing/               plan actions, usage bars
 │   │   ├── charts/                validated palette, trend, funnel, bar list
+│   │   ├── marketing/             the landing page's demo button
 │   │   ├── jobs/                  schedule form, status actions, tones
-│   │   ├── layout/                sidebar, bottom nav, top bar, nav map
+│   │   ├── layout/                sidebar, bottom nav, top bar, nav map, demo banner
 │   │   ├── leads/                 pipeline board, card, actions, AI panel
 │   │   ├── messaging/             reply box with a segment-cost counter
 │   │   ├── reviews/               the ask-for-a-review button
@@ -1256,6 +1335,8 @@ jobflow/
 │   │   ├── messaging/             send, inbound, opt-out, templates
 │   │   ├── pricing/               the pure calculation, and input resolution
 │   │   ├── quotes/                numbering, public scope, lifecycle
+│   │   ├── demo/seed.ts           the data a demo opens with, and its cleanup
+│   │   ├── onboarding/            the wizard's steps and catalogue switching
 │   │   ├── reviews/               requests, tracked clicks, reactivation
 │   │   ├── stripe/                client, signature checks, subscription state
 │   │   ├── email/
@@ -1340,6 +1421,13 @@ trapping, popover positioning) is needed.
   nav entry is hidden rather than shown and refused
 - **Platform admin reads aggregates and billing only** — no route from it into any
   business's leads, customers or messages
+- **A demo workspace can never reach a carrier**, enforced inside `sendMessage` so
+  no call site can forget it, and its seeded contacts are fictional by
+  construction
+- **A demo cannot be subscribed to**, checked before billing configuration so the
+  guard cannot be switched off by unrelated settings
+- **Demo cleanup is scoped to `isDemo` on every query**, and deletes only
+  throwaway accounts left with no workspace
 
 To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 
@@ -1351,7 +1439,7 @@ To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 npm test
 ```
 
-428 tests covering tenant isolation, session tokens and revocation, the
+460 tests covering tenant isolation, session tokens and revocation, the
 redirect-loop regression, the AI guardrails and their false-positive behaviour,
 AI absence and bounded failure, quote expiry and response gating, public-id
 entropy, document numbering under a race, the pricing engine (including the
@@ -1362,8 +1450,10 @@ timezone-aware booking across daylight-saving boundaries, appointment overlap,
 job state transitions, review-link and redirect-target safety, review token
 entropy, Stripe signature verification and replay windows, subscription status
 mapping, plan resolution after a billing failure, chart month bucketing and the
-validated palette contract, money arithmetic, request validation, plan limits, rate
-limiting, workspace slugs and the service catalogue.
+validated palette contract, the onboarding steps' refusal to count an empty body as
+an answer, the demo's fictional contact ranges, money arithmetic, request
+validation, plan limits, rate limiting, workspace slugs and the service
+catalogue.
 
 The most important file is `tests/tenant-isolation.test.ts`. Isolation is the one
 property whose failure is unrecoverable — a customer list shown to the wrong
@@ -1407,7 +1497,10 @@ to round-trip every hour across the two days a year the arithmetic is hard.
    `/api/cron/automations?sweep=1` once a day for the reactivation sweep; the
    endpoint returns 501 while the secret is unset, so follow-ups stay off until you
    deliberately enable them rather than starting to text customers on first deploy.
-8. Check `https://yourdomain.com/api/health` — it should report
+8. Optionally set `DEMO_MODE="on"` to offer a no-account demo from the landing
+   page. It is off by default; everything a demo creates is fictional, cannot be
+   messaged or billed, and is deleted by the daily sweep after `DEMO_TTL_HOURS`.
+9. Check `https://yourdomain.com/api/health` — it should report
    `{"status":"ok","database":"ok"}`.
 
 ### Other hosts

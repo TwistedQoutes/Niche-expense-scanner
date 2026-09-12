@@ -9,6 +9,7 @@ import {
 
 import { planFor } from '@/lib/billing/plans';
 import { effectivePlan, readUsage, recordUsage } from '@/lib/billing/usage';
+import { prisma } from '@/lib/db/client';
 import type { TenantClient } from '@/lib/db/tenant';
 import { sendEmail } from '@/lib/email';
 import { hasOptedOut } from '@/lib/messaging/optout';
@@ -23,10 +24,15 @@ import { sendSms, SmsError } from '@/lib/sms';
  *
  *  1. **Opt-out is checked first.** Before the plan, before the provider. See
  *     src/lib/messaging/optout.ts for why this one is not negotiable.
- *  2. **The plan's allowance is enforced**, because each message costs money.
- *  3. **A row is written whether or not delivery succeeded.** A failed message
+ *  2. **A demo workspace never reaches a carrier.** Its "customers" are invented,
+ *     but nothing stops a visitor typing their own — or somebody else's — real
+ *     number into one, and a product that texts a stranger because a prospect was
+ *     playing with it has done real harm. Checked here rather than at each call
+ *     site, for the same reason as the opt-out: a new caller cannot forget it.
+ *  3. **The plan's allowance is enforced**, because each message costs money.
+ *  4. **A row is written whether or not delivery succeeded.** A failed message
  *     that left no trace is a customer an owner thinks they contacted.
- *  4. **The conversation is threaded**, so the inbox shows one history per person
+ *  5. **The conversation is threaded**, so the inbox shows one history per person
  *     rather than a pile of sends.
  */
 
@@ -150,6 +156,48 @@ export async function sendMessage(
       reason: 'opted_out',
       message: 'That customer has asked not to receive texts.',
     };
+  }
+
+  /*
+   * A demo workspace is stopped here, before any provider is involved.
+   *
+   * One query, on every send, deliberately: the alternative is passing a flag
+   * down from each of the half-dozen call sites, and the one that forgets is the
+   * one that texts somebody who never asked to hear from us.
+   */
+  const organization = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { isDemo: true },
+  });
+
+  if (organization?.isDemo) {
+    const conversationId = await findOrCreateConversation(db, organizationId, {
+      channel,
+      contact: to,
+      customerId: request.customerId,
+      leadId: request.leadId,
+      subject: request.subject,
+    });
+
+    // Recorded so the demo's inbox still shows what would have gone out — the
+    // point of a demo is seeing the product work — but marked QUEUED, never SENT,
+    // because nothing was.
+    const recorded = await db.message.create({
+      data: {
+        organizationId,
+        conversationId,
+        channel,
+        direction: MessageDirection.OUTBOUND,
+        status: MessageStatus.QUEUED,
+        toAddress: to,
+        subject: request.subject ?? null,
+        body,
+        aiGenerated: request.aiGenerated ?? false,
+      },
+      select: { id: true },
+    });
+
+    return { ok: true, messageId: recorded.id, delivered: false };
   }
 
   const kind = channel === Channel.SMS ? 'SMS' : 'EMAIL';
