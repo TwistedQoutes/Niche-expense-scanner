@@ -187,3 +187,256 @@ export function isValidTimeZone(value: string): boolean {
     return false;
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wall-clock time in a business's own timezone
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The offset, in minutes, that `timeZone` is ahead of UTC at a given instant.
+ *
+ * Derived from the runtime's own IANA database by asking what the wall clock in
+ * that zone reads at that instant, rather than from a table we would have to
+ * maintain. `America/New_York` in July is -240; in January, -300.
+ */
+export function zoneOffsetMinutes(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(instant);
+
+  const field = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value ?? '0');
+
+  /*
+   * `hour12: false` renders midnight as 24 in some ICU versions, which would
+   * otherwise land this a day out.
+   */
+  const hour = field('hour') % 24;
+
+  const asUtc = Date.UTC(
+    field('year'),
+    field('month') - 1,
+    field('day'),
+    hour,
+    field('minute'),
+    field('second'),
+  );
+
+  // Whole minutes: every current zone is a whole number of minutes from UTC, and
+  // rounding keeps the arithmetic below exact.
+  return Math.round((asUtc - instant.getTime()) / 60_000);
+}
+
+/** A wall-clock reading, with no offset of its own. */
+export type WallClock = {
+  year: number;
+  /** 1–12, not the 0–11 that `Date` uses. */
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+};
+
+/**
+ * The instant at which a business's clock reads this wall time.
+ *
+ * The whole reason this function exists: a crew's "Tuesday 9am" is a wall-clock
+ * time in the business's own timezone, and `new Date('2026-03-10T09:00')` is
+ * whatever the *server's* zone says — in a serverless deployment, UTC. Booking a
+ * job that way puts a 9am visit on the calendar at 4am local, and the crew finds
+ * out on the day.
+ *
+ * The offset cannot simply be looked up, because which offset applies depends on
+ * the instant we are trying to compute. So: guess using the offset at the naive
+ * instant, then re-check the offset at the answer and correct once if the guess
+ * straddled a transition. A second correction is never needed — transitions are
+ * hours apart and offsets change by at most a couple of hours.
+ *
+ * Two edge cases have no honest answer, and both are resolved rather than thrown:
+ *
+ *  - **The spring-forward gap.** 2:30am does not exist on the morning the clocks
+ *    go forward. The result is the instant the clock jumps to (3:30am local),
+ *    which is what a person means when they book "half past two" on that day.
+ *  - **The autumn-back overlap.** 1:30am happens twice. The *first* one is
+ *    returned, matching every calendar application and meaning the earlier of two
+ *    equally valid readings.
+ */
+export function wallClockToInstant(wall: WallClock, timeZone: string): Date {
+  const naive = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute);
+
+  /** The instant this wall time would be, if `at`'s offset were the right one. */
+  const candidateFrom = (at: number) => naive - zoneOffsetMinutes(new Date(at), timeZone) * 60_000;
+
+  const first = candidateFrom(naive);
+  const second = candidateFrom(first);
+
+  /*
+   * A candidate is a real reading only if it survives its own offset: the zone
+   * must actually be at that offset at that instant. Testing this rather than
+   * trusting the second pass is what separates the two edge cases below, which
+   * otherwise look identical from here.
+   */
+  const consistent = [first, second].filter((candidate) => candidateFrom(candidate) === candidate);
+
+  /*
+   * The autumn overlap: both candidates can be real, an hour apart. The earlier
+   * one is returned — every calendar application does the same, and it keeps the
+   * answer stable rather than depending on which side of the transition the first
+   * guess happened to land.
+   */
+  if (consistent.length > 0) return new Date(Math.min(...consistent));
+
+  /*
+   * Neither is real, so this wall time does not exist: the spring-forward gap.
+   * The later candidate is the instant the clock jumps to — 2:30am becomes 3:30am,
+   * which is what a person booking "half past two" that morning means. Taking the
+   * earlier one would move the job an hour *backwards*, before the time they
+   * asked for.
+   */
+  return new Date(Math.max(first, second));
+}
+
+/** What a business's clock reads at a given instant. */
+export function instantToWallClock(instant: Date, timeZone: string): WallClock {
+  const shifted = new Date(instant.getTime() + zoneOffsetMinutes(instant, timeZone) * 60_000);
+
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes(),
+  };
+}
+
+/**
+ * Parses the pair of values an `<input type="date">` and `<input type="time">`
+ * produce into the instant the business means by them.
+ *
+ * Returns null rather than a wrong date for anything malformed, including the
+ * dates `Date` would silently roll over (2026-02-31 → 2 March).
+ */
+export function parseLocalDateTime(
+  dateValue: string,
+  timeValue: string,
+  timeZone: string,
+): Date | null {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue.trim());
+  const time = /^(\d{2}):(\d{2})$/.exec(timeValue.trim());
+  if (!day || !time) return null;
+
+  const [, year, month, date] = day as unknown as [string, string, string, string];
+  const [, hour, minute] = time as unknown as [string, string, string];
+
+  const wall: WallClock = {
+    year: Number(year),
+    month: Number(month),
+    day: Number(date),
+    hour: Number(hour),
+    minute: Number(minute),
+  };
+
+  if (wall.month < 1 || wall.month > 12) return null;
+  if (wall.day < 1 || wall.day > 31) return null;
+  if (wall.hour > 23 || wall.minute > 59) return null;
+
+  // Rejects 31 February rather than letting Date.UTC roll it into March.
+  const probe = new Date(Date.UTC(wall.year, wall.month - 1, wall.day));
+  if (probe.getUTCMonth() !== wall.month - 1 || probe.getUTCDate() !== wall.day) return null;
+
+  if (!isValidTimeZone(timeZone)) return null;
+
+  return wallClockToInstant(wall, timeZone);
+}
+
+/** `YYYY-MM-DD` as the business's calendar reads it, for a date input's value. */
+export function toLocalDateValue(instant: Date, timeZone: string): string {
+  const wall = instantToWallClock(instant, timeZone);
+  return [
+    String(wall.year).padStart(4, '0'),
+    String(wall.month).padStart(2, '0'),
+    String(wall.day).padStart(2, '0'),
+  ].join('-');
+}
+
+/** `HH:MM` in the business's timezone, for a time input's value. */
+export function toLocalTimeValue(instant: Date, timeZone: string): string {
+  const wall = instantToWallClock(instant, timeZone);
+  return `${String(wall.hour).padStart(2, '0')}:${String(wall.minute).padStart(2, '0')}`;
+}
+
+/**
+ * Half-open `[start, end)` covering one of the business's calendar days.
+ *
+ * Not 24 hours: the day the clocks change is 23 or 25 hours long, and a fixed
+ * span would drop an hour of appointments from one end of it.
+ */
+export function localDayRange(
+  dateValue: string,
+  timeZone: string,
+): { start: Date; end: Date } | null {
+  const start = parseLocalDateTime(dateValue, '00:00', timeZone);
+  if (!start) return null;
+
+  const wall = instantToWallClock(start, timeZone);
+  const nextDay = new Date(Date.UTC(wall.year, wall.month - 1, wall.day + 1));
+
+  const end = wallClockToInstant(
+    {
+      year: nextDay.getUTCFullYear(),
+      month: nextDay.getUTCMonth() + 1,
+      day: nextDay.getUTCDate(),
+      hour: 0,
+      minute: 0,
+    },
+    timeZone,
+  );
+
+  return { start, end };
+}
+
+/** The `YYYY-MM-DD` of each day in a week, starting Monday. */
+export function localWeekDays(anchorDateValue: string, timeZone: string): string[] | null {
+  const anchor = parseLocalDateTime(anchorDateValue, '12:00', timeZone);
+  if (!anchor) return null;
+
+  const wall = instantToWallClock(anchor, timeZone);
+  const asUtc = new Date(Date.UTC(wall.year, wall.month - 1, wall.day));
+
+  // getUTCDay: 0 is Sunday. A service business's week starts Monday, and Sunday
+  // belongs to the week it ends rather than the one it starts.
+  const mondayOffset = (asUtc.getUTCDay() + 6) % 7;
+  const monday = new Date(asUtc.getTime() - mondayOffset * 86_400_000);
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(monday.getTime() + index * 86_400_000);
+    return day.toISOString().slice(0, 10);
+  });
+}
+
+/** "9:00 AM" — the time shown on a calendar block. */
+export function formatTimeLabel(date: Date, timeZone = 'UTC', locale = 'en-US'): string {
+  return new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit', timeZone }).format(
+    date,
+  );
+}
+
+/** "Tue 10 Mar" — a calendar column heading. */
+export function formatDayHeading(dateValue: string, locale = 'en-US'): string {
+  const parsed = parseDateOnly(dateValue);
+  if (!parsed) return dateValue;
+
+  return new Intl.DateTimeFormat(locale, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  }).format(parsed);
+}

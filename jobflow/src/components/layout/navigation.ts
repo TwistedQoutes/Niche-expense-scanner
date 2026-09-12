@@ -46,8 +46,8 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Delivery',
     items: [
-      { href: '/jobs', label: 'Jobs', primary: true, built: false },
-      { href: '/calendar', label: 'Calendar', primary: true, built: false },
+      { href: '/jobs', label: 'Jobs', primary: true, built: true },
+      { href: '/calendar', label: 'Calendar', primary: true, built: true },
       { href: '/messages', label: 'Messages', built: true },
     ],
   },

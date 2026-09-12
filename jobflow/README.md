@@ -18,12 +18,13 @@ LEAD → AI QUALIFICATION → CUSTOMER → PROPERTY → ESTIMATE → QUOTE
 
 ## Where this is up to
 
-The build is phased. **Phases 1–8 are complete and verified**: project setup,
+The build is phased. **Phases 1–9 are complete and verified**: project setup,
 the full database schema, multi-tenancy, authentication, the dashboard shell,
 the lead pipeline and CRM, the services catalogue and pricing engine,
 professional quotes a customer can accept without an account, AI lead
-qualification, and the messaging layer — a unified inbox, missed-call text-back,
-carrier-compliant opt-out and the automated follow-up engine.
+qualification, the messaging layer — a unified inbox, missed-call text-back,
+carrier-compliant opt-out and the automated follow-up engine — and scheduling:
+jobs, a calendar in the business's own timezone, and completion.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -35,8 +36,8 @@ carrier-compliant opt-out and the automated follow-up engine.
 | 6 | Quote generation, public quote pages, acceptance | ✅ Done |
 | 7 | AI lead qualification, AI responses | ✅ Done |
 | 8 | Email/SMS, Twilio, Resend, automated follow-up | ✅ Done |
-| 9 | Calendar, appointments, jobs | Next — jobs created on acceptance |
-| 10 | Review requests, customer reactivation | Planned |
+| 9 | Calendar, appointments, jobs | ✅ Done |
+| 10 | Review requests, customer reactivation | Next — triggers already fire |
 | 11 | Stripe billing, subscriptions, usage limits | Usage metering done |
 | 12 | Analytics, admin dashboard | Planned |
 | 13 | Landing page, onboarding, demo mode | Landing page done |
@@ -447,6 +448,97 @@ than on their invoice.
 
 ---
 
+## Scheduling
+
+### A crew's 9am is a wall-clock time
+
+The one thing that decides whether a calendar is usable. A booking arrives as a
+**date plus a time of day** — `2026-07-15` and `09:00` — and the server converts
+it using the organization's own timezone. It never accepts an instant from the
+browser, because a phone set to another zone would then shift the booking, and
+`new Date('2026-07-15T09:00')` on a serverless host resolves against UTC — putting
+a 9am visit on the calendar at 5am local, which the crew discovers on the day.
+
+The conversion (`wallClockToInstant`) cannot just look the offset up, because
+which offset applies depends on the instant being computed. It guesses from the
+offset at the naive time, re-checks the offset at that answer, and then keeps only
+the candidates that survive their own offset. That last test is what separates the
+two days a year when a wall-clock time is not a single instant:
+
+- **The clocks go forward.** 2:30am does not exist that morning. Neither candidate
+  is self-consistent, so the later one is taken: the instant the clock jumps to.
+  Half past two becomes half past three, which is what a person booking that
+  morning means. Taking the earlier candidate would move the job *backwards*, to
+  before the time they asked for.
+- **The clocks go back.** 1:30am happens twice, and both candidates are real. The
+  earlier is returned, as every calendar application does.
+
+A business day is therefore not 24 hours: `localDayRange` produces 23 or 25 on
+those two days. A fixed 24-hour window would drop an hour of appointments off one
+end, or pull tomorrow's first job onto today's list.
+
+`tests/scheduling-time.test.ts` round-trips every hour across a DST boundary and
+checks both edge cases, a zone with no daylight saving, a zone on the other side
+of UTC, and a non-hour offset (`Asia/Kathmandu`, +05:45).
+
+**Known gap:** the organization's timezone is honoured everywhere, but nothing in
+the UI sets it yet — it defaults to `America/New_York`, so a business further west
+currently sees Eastern hours until the field is set directly. The settings screen
+that owns it lands with onboarding in Phase 13. `isValidTimeZone` rejects a name
+the runtime does not know, because a bad value would throw inside `Intl` on every
+calendar render — taking the page down rather than showing the wrong hour.
+
+### Double-booking is refused once, then allowed
+
+Bookings are half-open intervals `[startsAt, endsAt)`. That is the only convention
+under which a crew can work 9–10 and then 10–11: treating them as closed would
+report a full morning as five double-bookings.
+
+A clash does not silently go through, and it is not simply blocked either. The
+first attempt is refused with a message naming what it collided with, and the
+owner can repeat the request with `allowConflict`. Two crews with a van each is a
+real arrangement; only the owner knows whether this is that or a mistake.
+
+Who is busy matters more than what is booked. When a booking names a person, only
+that person's visits count as clashes; when it does not, the slot itself is being
+reserved and everything in it counts.
+
+The overlap test exists in two places — the SQL range query that narrows the
+candidates, and the predicate applied to the rows that come back — so a test pins
+them together over every arrangement of two intervals. Duplicated logic like that
+is exactly what drifts.
+
+### Completion is the one write that must not happen twice
+
+Finishing a job moves the customer's lifetime value and completed count, sets the
+next-service date, and fires the review request. Those are *increments*: applying
+them twice is not a display glitch but a wrong number in the owner's books that
+nothing later corrects.
+
+So the transition is a conditional `updateMany` on the status the caller read. The
+first call matches and applies the rollups; a second matches nothing, changes
+nothing, and returns `changed: false` so the UI can stay quiet rather than claiming
+the job was just completed again. Completed and cancelled are terminal — there is
+no path back out of them that would re-fire any of it.
+
+The final price is asked for at completion rather than taken from the quote. A lawn
+that turned out to be twice the size was a different job from the one priced, and
+lifetime value has to reflect what was charged.
+
+### Booking a job writes the job and its visit together
+
+A job that says Tuesday while its appointment says Wednesday is an inconsistency
+the crew discovers at a customer's gate. Scheduling therefore stamps
+`scheduledFor` and creates — or *moves* — the one appointment, rather than
+accumulating a row per reschedule. Cancelling a job cancels its visit, putting the
+slot back on the calendar, and stops any follow-up aimed at it.
+
+Appointments are cancelled, never deleted. The slot has to be freed, but "there was
+a visit here and it was called off" is what an owner needs when a customer asks why
+nobody came.
+
+---
+
 ## Multi-tenancy
 
 Every business's rows live in the same tables, separated by `organizationId`.
@@ -577,6 +669,23 @@ What it provides:
 | --- | --- |
 | Reply in a thread | `POST /api/conversations/[id]/messages` |
 | Enable or disable an automation | `PATCH /api/automations/[id]` |
+
+### Jobs and the calendar
+
+| Operation | Route |
+| --- | --- |
+| List jobs, filtered by status | `GET /api/jobs` |
+| Create a job with no quote behind it | `POST /api/jobs` |
+| Read or edit one job | `GET` / `PATCH /api/jobs/[id]` |
+| Put it on the calendar | `POST /api/jobs/[id]/schedule` |
+| Start, complete or cancel it | `POST /api/jobs/[id]/status` |
+| The calendar for a day or a week | `GET /api/appointments` |
+| Book a visit with no job | `POST /api/appointments` |
+| Reschedule or call off a visit | `PATCH` / `DELETE /api/appointments/[id]` |
+
+`/api/jobs/[id]/status` names the action in the body rather than the URL, so a
+crew member's tap cannot be replayed out of a browser history. Scheduling takes a
+date and a time of day, never an instant — see [Scheduling](#scheduling).
 
 ### Machine callers — no session
 
@@ -770,6 +879,8 @@ jobflow/
 │   │   │   ├── customers/         list and full CRM detail
 │   │   │   ├── dashboard/
 │   │   │   ├── automations/       follow-up sequences, on and off
+│   │   │   ├── calendar/          day and week, in the business's timezone
+│   │   │   ├── jobs/              list by status, and one job's whole life
 │   │   │   ├── leads/             pipeline board, new, detail
 │   │   │   ├── messages/          unified inbox, thread with manual reply
 │   │   │   ├── pricing-settings/  defaults, catalogue, rules, calculator
@@ -777,12 +888,14 @@ jobflow/
 │   │   ├── (auth)/                login, signup, password reset, verification
 │   │   ├── api/
 │   │   │   ├── ai/                qualify a lead
+│   │   │   ├── appointments/      the calendar, and visits without a job
 │   │   │   ├── auth/              signup, login, logout, me, reset, verify
 │   │   │   ├── automations/       enable and disable a sequence
 │   │   │   ├── conversations/     manual reply into a thread
 │   │   │   ├── cron/              the automation worker, bearer-authenticated
 │   │   │   ├── customers/         list, create, read, update, delete
 │   │   │   ├── health/            liveness plus a real database round-trip
+│   │   │   ├── jobs/              create, edit, schedule, start, complete
 │   │   │   ├── leads/             list, create, move, convert, notes
 │   │   │   ├── pricing/           defaults, calculate
 │   │   │   ├── pricing-rules/     list, create, update, delete
@@ -800,6 +913,7 @@ jobflow/
 │   ├── components/
 │   │   ├── auth/                  sign-in, sign-up, reset, verify forms
 │   │   ├── automations/           the on/off switch and what it warns about
+│   │   ├── jobs/                  schedule form, status actions, tones
 │   │   ├── layout/                sidebar, bottom nav, top bar, nav map
 │   │   ├── leads/                 pipeline board, card, actions, AI panel
 │   │   ├── messaging/             reply box with a segment-cost counter
@@ -813,6 +927,7 @@ jobflow/
 │   │   ├── analytics/summary.ts   dashboard figures, one parallel burst
 │   │   ├── api/                   errors, handler, response, rate-limit
 │   │   ├── automations/           triggers, cancellation, the queue worker
+│   │   ├── jobs/repository.ts     job lifecycle and the completion rollups
 │   │   ├── auth/                  session, context, password, tokens, emails
 │   │   ├── billing/               plans and limits, usage metering
 │   │   ├── customers/repository.ts CRM reads and rollups
@@ -823,6 +938,7 @@ jobflow/
 │   │   ├── quotes/                numbering, public scope, lifecycle
 │   │   ├── email/
 │   │   ├── organizations/         workspace provisioning
+│   │   ├── scheduling/            overlap rules, appointments, the calendar
 │   │   ├── services/templates.ts  starter catalogue per trade
 │   │   ├── sms/                   Twilio driver and signature verification
 │   │   ├── validation/            zod schemas, shared with the forms
@@ -876,6 +992,11 @@ trapping, popover positioning) is needed.
   unsubscribe
 - **The automation worker authenticates its caller** with a constant-time bearer
   comparison, and refuses to run at all until `CRON_SECRET` is set
+- **Assigning a job checks membership, not just the user row.** A user from another
+  workspace exists; assigning them would both leak that and put a job in a
+  stranger's queue
+- **Revenue is incremented under a conditional update**, so a job completed twice
+  is counted once
 
 To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 
@@ -887,15 +1008,16 @@ To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 npm test
 ```
 
-329 tests covering tenant isolation, session tokens and revocation, the
+376 tests covering tenant isolation, session tokens and revocation, the
 redirect-loop regression, the AI guardrails and their false-positive behaviour,
 AI absence and bounded failure, quote expiry and response gating, public-id
 entropy, document numbering under a race, the pricing engine (including the
 specification's own worked example, margin-versus-markup, rules, floors, tax and
 overrides), pipeline ordering and respacing, Twilio signature verification,
-carrier opt-out keywords, template rendering, inbound number resolution, plan
-resolution, money arithmetic, request validation, plan limits, rate limiting,
-workspace slugs and the service catalogue.
+carrier opt-out keywords, template rendering, inbound number resolution,
+timezone-aware booking across daylight-saving boundaries, appointment overlap,
+job state transitions, plan resolution, money arithmetic, request validation, plan
+limits, rate limiting, workspace slugs and the service catalogue.
 
 The most important file is `tests/tenant-isolation.test.ts`. Isolation is the one
 property whose failure is unrecoverable — a customer list shown to the wrong
@@ -907,6 +1029,10 @@ apologised for afterwards: a forged webhook, and a missed opt-out. The signature
 tests run against Twilio's own documented example — token, URL, parameters and
 expected signature — so they check the implementation against their algorithm
 rather than against our reading of it.
+
+`tests/scheduling-time.test.ts` earns its place for a duller reason: an hour is a
+small error that produces a crew at the wrong house, and the only way to be sure is
+to round-trip every hour across the two days a year the arithmetic is hard.
 
 ---
 

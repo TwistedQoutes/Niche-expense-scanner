@@ -8,6 +8,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { StatCard } from '@/components/ui/StatCard';
 import { requireAuth } from '@/lib/auth/context';
 import { getDashboardSummary } from '@/lib/analytics/summary';
+import { formatTimeLabel } from '@/lib/dates';
+import { loadTodayAgenda } from '@/lib/scheduling/repository';
 import { formatCentsCompact } from '@/lib/money';
 
 export const metadata: Metadata = { title: 'Dashboard' };
@@ -18,7 +20,12 @@ export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   const auth = await requireAuth();
-  const summary = await getDashboardSummary(auth.db);
+  // Both in one burst: the agenda is the first thing an owner looks at in the
+  // morning, and making them wait for the analytics to finish first is backwards.
+  const [summary, agenda] = await Promise.all([
+    getDashboardSummary(auth.db),
+    loadTodayAgenda(auth.db, auth.organization.timezone),
+  ]);
 
   const currency = auth.organization.currency;
   const firstName = auth.user.name?.split(' ')[0];
@@ -104,6 +111,45 @@ export default async function DashboardPage() {
           />
         </div>
       </section>
+
+      {agenda.length > 0 ? (
+        <Card>
+          <CardHeader
+            title="Today"
+            description={`${agenda.length === 1 ? 'One visit' : `${agenda.length} visits`} booked in`}
+            action={
+              <Link href="/calendar" className="text-brand-700 dark:text-brand-400 text-sm font-medium">
+                Calendar
+              </Link>
+            }
+          />
+          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+            {agenda.map((visit) => (
+              <li key={visit.id}>
+                <Link
+                  href={visit.job ? `/jobs/${visit.job.id}` : '/calendar'}
+                  className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                      {visit.title}
+                    </span>
+                    <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+                      {visit.customer
+                        ? `${visit.customer.firstName} ${visit.customer.lastName ?? ''}`
+                        : 'No customer attached'}
+                      {visit.addressLine1 ? ` · ${visit.addressLine1}` : ''}
+                    </span>
+                  </span>
+                  <span className="tabular text-sm whitespace-nowrap text-slate-600 dark:text-slate-300">
+                    {formatTimeLabel(visit.startsAt, auth.organization.timezone)}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
