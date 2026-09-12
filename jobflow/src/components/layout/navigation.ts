@@ -48,13 +48,13 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: '/jobs', label: 'Jobs', primary: true, built: false },
       { href: '/calendar', label: 'Calendar', primary: true, built: false },
-      { href: '/messages', label: 'Messages', built: false },
+      { href: '/messages', label: 'Messages', built: true },
     ],
   },
   {
     title: 'Growth',
     items: [
-      { href: '/automations', label: 'Automations', built: false },
+      { href: '/automations', label: 'Automations', built: true },
       { href: '/reviews', label: 'Reviews', built: false },
       { href: '/analytics', label: 'Analytics', built: false },
     ],

@@ -65,6 +65,17 @@ const serverEnvSchema = z.object({
   TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
   TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
   TWILIO_PHONE_NUMBER: z.string().min(1).optional(),
+  /** Overridable for the same reasons as OPENAI_BASE_URL: proxies and testing. */
+  TWILIO_BASE_URL: z.string().url().default('https://api.twilio.com/2010-04-01'),
+  /**
+   * The public URL Twilio posts to, used when verifying its signature.
+   *
+   * Twilio signs the exact URL it was configured with. Behind a proxy or a
+   * tunnel the incoming request's own host can differ from that, and verifying
+   * against the wrong URL rejects every legitimate webhook. Set this explicitly
+   * in production; it falls back to APP_URL.
+   */
+  TWILIO_WEBHOOK_URL: z.string().url().optional(),
 
   // --- AI ------------------------------------------------------------------
   AI_DRIVER: z.enum(['none', 'openai']).default('none'),

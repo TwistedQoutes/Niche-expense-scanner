@@ -1,6 +1,7 @@
-import { JobStatus, LeadStatus, Prisma, QuoteStatus } from '@prisma/client';
+import { AutomationTrigger, JobStatus, LeadStatus, Prisma, QuoteStatus } from '@prisma/client';
 
 import { conflict, notFound } from '@/lib/api/errors';
+import { cancelRuns, fireTrigger } from '@/lib/automations/trigger';
 import type { TenantClient } from '@/lib/db/tenant';
 import { logActivity } from '@/lib/leads/repository';
 import { generatePublicId, nextNumber, withNumberRetry } from '@/lib/quotes/numbering';
@@ -276,6 +277,13 @@ export async function sendQuote(
     });
   }
 
+  // The follow-up sequence starts here rather than at creation: the clock the
+  // customer experiences begins when they receive it.
+  await fireTrigger(db, organizationId, AutomationTrigger.QUOTE_SENT, {
+    type: 'quote',
+    id,
+  });
+
   return updated;
 }
 
@@ -383,6 +391,11 @@ export async function respondToQuote(
   }
 
   const now = new Date();
+
+  // The customer has answered, so stop chasing them. Before anything else, so a
+  // failure further down cannot leave a sequence running against someone who
+  // already replied.
+  await cancelRuns(db, { type: 'quote', id: quote.id }, { reason: `customer ${action}` });
 
   if (action === 'changes') {
     await db.quote.update({
@@ -535,6 +548,11 @@ export async function respondToQuote(
     title: `${quote.number} accepted — job ${job.number} created`,
     body: 'Schedule it and you are away.',
     href: `/jobs/${job.id}`,
+  });
+
+  await fireTrigger(db, organizationId, AutomationTrigger.JOB_SCHEDULED, {
+    type: 'job',
+    id: job.id,
   });
 
   if (quote.leadId) {

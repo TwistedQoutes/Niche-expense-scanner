@@ -18,11 +18,12 @@ LEAD → AI QUALIFICATION → CUSTOMER → PROPERTY → ESTIMATE → QUOTE
 
 ## Where this is up to
 
-The build is phased. **Phases 1–7 are complete and verified**: project setup,
+The build is phased. **Phases 1–8 are complete and verified**: project setup,
 the full database schema, multi-tenancy, authentication, the dashboard shell,
 the lead pipeline and CRM, the services catalogue and pricing engine,
-professional quotes a customer can accept without an account, and AI lead
-qualification.
+professional quotes a customer can accept without an account, AI lead
+qualification, and the messaging layer — a unified inbox, missed-call text-back,
+carrier-compliant opt-out and the automated follow-up engine.
 
 | Phase | Scope | State |
 | --- | --- | --- |
@@ -33,8 +34,8 @@ qualification.
 | 5 | Services, pricing engine, quote calculator | ✅ Done |
 | 6 | Quote generation, public quote pages, acceptance | ✅ Done |
 | 7 | AI lead qualification, AI responses | ✅ Done |
-| 8 | Email/SMS, Twilio, Resend, automated follow-up | Next |
-| 9 | Calendar, appointments, jobs | Jobs created on acceptance |
+| 8 | Email/SMS, Twilio, Resend, automated follow-up | ✅ Done |
+| 9 | Calendar, appointments, jobs | Next — jobs created on acceptance |
 | 10 | Review requests, customer reactivation | Planned |
 | 11 | Stripe billing, subscriptions, usage limits | Usage metering done |
 | 12 | Analytics, admin dashboard | Planned |
@@ -336,6 +337,116 @@ form can do sums hands them to anyone who opens the network tab.
 
 ---
 
+## Messaging and automations
+
+A quote that gets no reply is the normal case, not the failure case. Most of the
+money in this product is in what happens *after* the quote is sent, which is why
+follow-up is an engine rather than a feature.
+
+### A reply stops everything
+
+The single most important behaviour: any inbound message from a person cancels
+every automation aimed at them — not just the sequence they replied to. A
+customer who answers and then receives "just checking in — any thoughts?" two
+days later has been told plainly that nobody is reading. `cancelRunsForCustomer`
+sweeps runs whose subject is that customer, their lead, their quotes or their
+jobs, and the cancellation is the first thing the inbound handler does.
+
+### Opt-out is matched on the whole message
+
+`STOP` is honoured; "please stop by on Tuesday" is not. Substring matching would
+silently unsubscribe a customer who wanted the opposite, so the message is
+stripped of punctuation and compared in full against the carrier keywords. The
+opt-out is stored as a tag on the customer and checked before every send,
+including automated ones. The confirmation is sent directly rather than through
+`sendMessage`, which would correctly refuse to text a number that has just opted
+out.
+
+### Templates cannot leak their own syntax
+
+`renderTemplate` has a fallback for every placeholder it knows — `{{first_name}}`
+becomes "there" rather than nothing — and strips any placeholder it cannot fill,
+tidying the punctuation left behind. A customer receiving a literal
+`{{first_name}}` is the most visible bug this product could ship, so it is not
+possible to reach the carrier with one.
+
+### The worker is a queue, not a cron of side effects
+
+`AutomationRun` rows *are* the queue. `/api/cron/automations` claims each due run
+with a conditional `updateMany` on `status: PENDING`, which is the lock — two
+overlapping invocations cannot both take the same run, and the platform is free to
+retry the HTTP call. One step runs per pass, failures are isolated per run, and
+three attempts with 5- and 25-minute backoff separate a provider outage from a
+genuinely bad message.
+
+An opt-out or a spent plan allowance is **not** recorded as a failure: refusing to
+send is the system working. Only the provider failing is a failure.
+
+The endpoint refuses with 501 when `CRON_SECRET` is unset, rather than running
+unauthenticated. `vercel.json` runs it every minute; that cadence sets the worst-case
+latency for a delayed step, not for the missed-call text, which is sent inline (see
+below).
+
+### Missed calls
+
+A missed call becomes a lead and a text back within seconds, which is the whole
+argument: a homeowner rings three companies and hires whoever answers. The lead
+is created even if the text fails, because knowing somebody rang is worth more
+than the text. `completed` is deliberately excluded from the missed-call statuses —
+texting "sorry we missed your call" to someone the owner just spoke to is worse
+than saying nothing.
+
+The text itself is an automation rather than hard-coded, so an owner can edit its
+wording or turn it off.
+
+**It is sent during the webhook call, not on the next scheduled pass.** Queuing a
+zero-delay step and waiting for the cron would make "within seconds" mean "within
+the next minute", which is comfortably long enough for a competitor to have
+answered. Doing it inline on Twilio's request path is safe because every step of
+it is idempotent: the run is claimed with the same conditional update the
+scheduled worker uses, so the two cannot both send it; and if the request is slow
+enough for Twilio to time out and retry, the retry creates no second lead — the
+caller is a known one by then — and fires no second trigger. If the inline attempt
+throws, the lead is kept and the run stays `PENDING` for the scheduled pass to
+collect.
+
+### Inbound webhooks are verified before they are believed
+
+`/api/webhooks/twilio` is otherwise an endpoint where anyone on the internet can
+put words in a customer's mouth: inject messages into a business's inbox, create
+leads, and — because STOP is honoured — unsubscribe that business's customers
+from their own follow-ups. So:
+
+- The HMAC-SHA1 signature is checked **before any database access**, against the
+  URL Twilio signed (`TWILIO_WEBHOOK_URL`, since a proxy or tunnel rewrites the
+  host) and the parameters concatenated Twilio's way — `a=1&b=2` becomes `a1b2`,
+  with no separators.
+- Verification **fails closed**. No auth token configured means every webhook is
+  rejected, because the alternative turns a missing environment variable into an
+  open endpoint.
+- Comparison is constant-time.
+- Rejections return 204 and explain nothing. Twilio retries non-2xx, and retrying
+  a request we deliberately refused only multiplies the noise; a prober learns
+  nothing either way.
+- A number **no** business claims is dropped rather than attributed to a guess.
+- A number **two** businesses claim is also dropped. Picking the first match —
+  the oldest row, as it happens — would file a stranger's text in whichever
+  workspace signed up first, which is one tenant reading another tenant's
+  customer. Nothing in the request says whose customer it is, so nothing is
+  guessed; the collision is logged for an operator instead.
+
+`tests/messaging.test.ts` checks the signature implementation against Twilio's own
+documented example rather than against our reading of their algorithm.
+
+### Costs are visible before they are incurred
+
+Every outbound text is metered against the plan allowance, and the reply box
+counts characters against a 480-character ceiling. A long message is split into
+segments and billed per segment, so the owner is told before they send rather
+than on their invoice.
+
+---
+
 ## Multi-tenancy
 
 Every business's rows live in the same tables, separated by `organizationId`.
@@ -460,6 +571,24 @@ What it provides:
 | --- | --- |
 | Score a lead and draft a reply | `POST /api/ai/qualify` |
 
+### Messaging and automations
+
+| Operation | Route |
+| --- | --- |
+| Reply in a thread | `POST /api/conversations/[id]/messages` |
+| Enable or disable an automation | `PATCH /api/automations/[id]` |
+
+### Machine callers — no session
+
+| Operation | Route |
+| --- | --- |
+| Inbound texts and call status | `POST /api/webhooks/twilio` |
+| Run due automation steps | `POST /api/cron/automations` |
+
+Neither takes a cookie. The webhook authenticates with Twilio's signature; the
+cron endpoint with a bearer `CRON_SECRET` compared in constant time, and returns
+501 rather than running when that is unset.
+
 Security properties worth knowing about:
 
 - **Sessions are revocable despite being stateless.** A JWT normally cannot be
@@ -568,6 +697,30 @@ The number must be SMS-capable and, for US traffic, 10DLC-registered — an
 unregistered number gets filtered by the carriers rather than rejected, so
 messages silently vanish.
 
+For inbound texts and missed calls, point the number's webhooks at
+`https://yourdomain.com/api/webhooks/twilio` (both "A message comes in" and
+"A call comes in" / status callback), and set:
+
+```bash
+TWILIO_WEBHOOK_URL="https://yourdomain.com/api/webhooks/twilio"
+```
+
+That is the URL the signature is verified against. It exists because Twilio signs
+the URL *it* was configured to call, which behind a proxy, a tunnel or a platform
+that rewrites the host is not the URL the request appears to arrive at — and
+verifying against the wrong string rejects every legitimate webhook. It defaults
+to `APP_URL` + the path, which is correct when no proxy rewrites anything.
+
+Inbound is resolved to a workspace by the business's own stored phone number, so
+each workspace needs a distinct one under Settings. Two workspaces sharing a
+number makes their inbound traffic unattributable, and it is then dropped rather
+than guessed at.
+
+With `SMS_DRIVER="none"` texts are printed to the server console instead of sent.
+That is the default, and it matters more here than anywhere else: every message
+costs money at the carrier, so a bug that sends a hundred texts should be a log,
+not a bill.
+
 ### Resend (email)
 
 ```bash
@@ -616,13 +769,18 @@ jobflow/
 │   │   ├── (app)/                 signed-in shell; authorises in its layout
 │   │   │   ├── customers/         list and full CRM detail
 │   │   │   ├── dashboard/
+│   │   │   ├── automations/       follow-up sequences, on and off
 │   │   │   ├── leads/             pipeline board, new, detail
+│   │   │   ├── messages/          unified inbox, thread with manual reply
 │   │   │   ├── pricing-settings/  defaults, catalogue, rules, calculator
 │   │   │   └── quotes/            list and detail
 │   │   ├── (auth)/                login, signup, password reset, verification
 │   │   ├── api/
 │   │   │   ├── ai/                qualify a lead
 │   │   │   ├── auth/              signup, login, logout, me, reset, verify
+│   │   │   ├── automations/       enable and disable a sequence
+│   │   │   ├── conversations/     manual reply into a thread
+│   │   │   ├── cron/              the automation worker, bearer-authenticated
 │   │   │   ├── customers/         list, create, read, update, delete
 │   │   │   ├── health/            liveness plus a real database round-trip
 │   │   │   ├── leads/             list, create, move, convert, notes
@@ -630,7 +788,8 @@ jobflow/
 │   │   │   ├── pricing-rules/     list, create, update, delete
 │   │   │   ├── public/            unauthenticated quote view and response
 │   │   │   ├── quotes/            list, create, read, update, send
-│   │   │   └── services/          list, create, update, delete
+│   │   │   ├── services/          list, create, update, delete
+│   │   │   └── webhooks/twilio/   inbound texts and call status
 │   │   ├── legal/                 terms, privacy
 │   │   ├── quote/[publicId]/      the customer's quote page — no session
 │   │   ├── error.tsx              error boundary
@@ -640,8 +799,10 @@ jobflow/
 │   │   └── page.tsx               landing page
 │   ├── components/
 │   │   ├── auth/                  sign-in, sign-up, reset, verify forms
+│   │   ├── automations/           the on/off switch and what it warns about
 │   │   ├── layout/                sidebar, bottom nav, top bar, nav map
 │   │   ├── leads/                 pipeline board, card, actions, AI panel
+│   │   ├── messaging/             reply box with a segment-cost counter
 │   │   ├── pricing/               defaults form, service editor, calculator
 │   │   ├── quotes/                send panel, customer response, quote-from-lead
 │   │   ├── legal/
@@ -651,16 +812,19 @@ jobflow/
 │   │   ├── ai/                    client, guardrails, qualification
 │   │   ├── analytics/summary.ts   dashboard figures, one parallel burst
 │   │   ├── api/                   errors, handler, response, rate-limit
+│   │   ├── automations/           triggers, cancellation, the queue worker
 │   │   ├── auth/                  session, context, password, tokens, emails
 │   │   ├── billing/               plans and limits, usage metering
 │   │   ├── customers/repository.ts CRM reads and rollups
 │   │   ├── db/                    client + tenant isolation
 │   │   ├── leads/                 pipeline definition, ordering, repository
+│   │   ├── messaging/             send, inbound, opt-out, templates
 │   │   ├── pricing/               the pure calculation, and input resolution
 │   │   ├── quotes/                numbering, public scope, lifecycle
 │   │   ├── email/
 │   │   ├── organizations/         workspace provisioning
 │   │   ├── services/templates.ts  starter catalogue per trade
+│   │   ├── sms/                   Twilio driver and signature verification
 │   │   ├── validation/            zod schemas, shared with the forms
 │   │   ├── dates.ts  money.ts  cn.ts  env.ts  api-client.ts
 │   ├── proxy.ts                   optimistic route protection (Next 16)
@@ -700,7 +864,18 @@ trapping, popover positioning) is needed.
 - **Open-redirect protection** on the post-login `next` parameter, and an
   allow-list on the sign-out banner so a query string cannot put attacker text
   above the password field
-- **Webhook signature verification** required whenever Stripe is configured
+- **Webhook signature verification** required whenever Stripe or Twilio is
+  configured, checked before any database access and **failing closed** when the
+  secret is absent, so a missing environment variable cannot turn an endpoint into
+  an open one
+- **Inbound messages are attributed or dropped, never guessed.** A number that
+  matches no workspace, or more than one, is refused: filing a stranger's text in
+  an arbitrary workspace would be one tenant reading another tenant's customer
+- **Carrier opt-out is honoured before every send**, automated sends included, and
+  matched on the whole message so "please stop by on Tuesday" is not an
+  unsubscribe
+- **The automation worker authenticates its caller** with a constant-time bearer
+  comparison, and refuses to run at all until `CRON_SECRET` is set
 
 To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 
@@ -712,19 +887,26 @@ To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 npm test
 ```
 
-288 tests covering tenant isolation, session tokens and revocation, the
+329 tests covering tenant isolation, session tokens and revocation, the
 redirect-loop regression, the AI guardrails and their false-positive behaviour,
 AI absence and bounded failure, quote expiry and response gating, public-id
 entropy, document numbering under a race, the pricing engine (including the
 specification's own worked example, margin-versus-markup, rules, floors, tax and
-overrides), pipeline ordering and respacing, plan resolution, money arithmetic,
-request validation, plan limits, rate limiting, workspace slugs and the service
-catalogue.
+overrides), pipeline ordering and respacing, Twilio signature verification,
+carrier opt-out keywords, template rendering, inbound number resolution, plan
+resolution, money arithmetic, request validation, plan limits, rate limiting,
+workspace slugs and the service catalogue.
 
 The most important file is `tests/tenant-isolation.test.ts`. Isolation is the one
 property whose failure is unrecoverable — a customer list shown to the wrong
 business cannot be un-shown — so it is tested per operation shape, including a
 caller deliberately trying to override the tenant.
+
+`tests/messaging.test.ts` is next. Two of the things it covers cannot be
+apologised for afterwards: a forged webhook, and a missed opt-out. The signature
+tests run against Twilio's own documented example — token, URL, parameters and
+expected signature — so they check the implementation against their algorithm
+rather than against our reading of it.
 
 ---
 
@@ -745,7 +927,11 @@ caller deliberately trying to override the tenant.
    ```
 6. Add the Stripe webhook endpoint at `https://yourdomain.com/api/stripe/webhook`
    and put its signing secret in `STRIPE_WEBHOOK_SECRET`.
-7. Check `https://yourdomain.com/api/health` — it should report
+7. Set `CRON_SECRET` to a long random value to turn on automated follow-ups.
+   `vercel.json` schedules `/api/cron/automations`; the endpoint returns 501 while
+   the secret is unset, so follow-ups stay off until you deliberately enable them
+   rather than starting to text customers on first deploy.
+8. Check `https://yourdomain.com/api/health` — it should report
    `{"status":"ok","database":"ok"}`.
 
 ### Other hosts
@@ -754,6 +940,12 @@ Nothing here is Vercel-specific. It needs a Node 22 runtime, the environment
 variables, and `npm run db:migrate:deploy` run once per release. The only
 platform assumption is that `x-forwarded-for` is set by a proxy you control,
 which rate limiting relies on.
+
+`vercel.json` only supplies the *schedule*. Elsewhere, have anything that can make
+an HTTP request call `POST /api/cron/automations` every few minutes with
+`Authorization: Bearer $CRON_SECRET`. Overlapping calls are safe — each due run is
+claimed with a conditional update — so a platform that retries or double-fires
+cannot send a follow-up twice.
 
 ---
 
