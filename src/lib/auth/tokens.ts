@@ -23,7 +23,14 @@ const TTL_SECONDS: Record<TokenPurpose, number> = {
   email_verify: 60 * 60 * 24 * 3, // 3 days — less sensitive, more forgiving
 };
 
-function hashToken(token: string): string {
+/**
+ * How a token is stored, anywhere in the product.
+ *
+ * Exported so invitations (`src/lib/team/repository.ts`) store theirs the same
+ * way. Copying one line would be worse than sharing it: two implementations of
+ * "how we keep a bearer secret at rest" is one of them eventually being wrong.
+ */
+export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 

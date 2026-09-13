@@ -320,6 +320,7 @@ model Organization {
   usage          Usage[]
   invoices       Invoice[]
   auditLogs      AuditLog[]
+  invitations    Invitation[]
 
   @@index([status])
   @@index([createdAt])
@@ -356,6 +357,7 @@ model User {
   assignedJobs  Job[]          @relation("JobAssignee")
   notifications Notification[]
   auditLogs     AuditLog[]
+  sentInvites   Invitation[]   @relation("InvitedBy")
 
   @@index([createdAt])
   @@map("users")
@@ -391,6 +393,56 @@ model Membership {
 ///
 /// Only a SHA-256 hash is stored, so a leaked database does not hand over the
 /// ability to reset anyone's password.
+/// An invitation to join a business, addressed to an email rather than a user.
+///
+/// Deliberately not an `AuthToken`. Those hang off a `userId`, and the whole
+/// point of an invitation is that the person may not exist yet — `User` requires
+/// a `passwordHash`, so issuing one through AuthToken would mean creating a
+/// half-built account that cannot log in and must be cleaned up if the invite is
+/// never accepted. Addressing the email directly means an unaccepted invitation
+/// is one row with nothing else attached to it.
+///
+/// The token discipline is copied from `src/lib/auth/tokens.ts` on purpose: 256
+/// bits of randomness, only ever stored as a SHA-256 hash, single-use through a
+/// conditional update rather than read-then-write, and an expiry — so an old
+/// invitation sitting in an inbox stops being a key to someone's customer list.
+model Invitation {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Lower-cased at validation, because "Sam@" and "sam@" are one person and an
+  /// invitation that can be issued twice is a seat counted twice.
+  email String
+  role  Role   @default(STAFF)
+
+  /// SHA-256 of the token that was emailed. The plaintext exists once, in transit.
+  tokenHash String @unique
+
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  /// Set when an owner withdraws an invitation, and when a newer invitation to
+  /// the same address supersedes this one. Either way it can no longer be used.
+  revokedAt  DateTime?
+
+  /// Who sent it. Nullable because a departed owner should not take the audit
+  /// trail of who let someone in with them.
+  invitedByUserId String?
+  invitedBy       User?   @relation("InvitedBy", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The pending list on the team screen, newest first.
+  @@index([organizationId, acceptedAt, createdAt])
+  /// Finding an outstanding invitation for one address, to supersede it.
+  @@index([organizationId, email])
+  /// Foreign key, indexed — see the note on the other models.
+  @@index([invitedByUserId])
+  @@index([expiresAt])
+  @@map("invitations")
+}
+
 model AuthToken {
   id     String @id @default(cuid())
   userId String

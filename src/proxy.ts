@@ -32,6 +32,7 @@ const PROTECTED_PREFIXES = [
   '/analytics',
   '/pricing-settings',
   '/settings',
+  '/team',
   '/billing',
   '/onboarding',
   '/admin',
@@ -61,8 +62,9 @@ export const config = {
   /**
    * Everything except Next internals and static files.
    *
-   * `/quote/…` and `/intake/…` are matched but never protected: a customer must
-   * be able to open a quote without an account, and the public intake form is
+   * `/quote/…`, `/invite/…` and `/intake/…` are matched but never protected: a
+   * customer must be able to open a quote without an account, an invited teammate
+   * has no account yet by definition, and the public intake form is
    * the point of lead capture.
    */
   matcher: ['/((?!api|_next/static|_next/image|favicon.ico|manifest.webmanifest).*)'],

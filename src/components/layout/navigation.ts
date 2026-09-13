@@ -72,6 +72,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'Configuration',
     items: [
       { href: '/pricing-settings', label: 'Pricing', admin: true, built: true },
+      { href: '/team', label: 'Team', built: true },
       { href: '/settings', label: 'Settings', built: true },
       { href: '/billing', label: 'Billing', admin: true, built: true },
     ],

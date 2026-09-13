@@ -231,6 +231,23 @@ export function hasRole(context: AuthContext, minimum: Role): boolean {
 }
 
 /**
+ * Whether `actor` may act on someone holding `target`, strictly by rank.
+ *
+ * Strictly below, not below-or-equal, and this is the whole of the privilege
+ * model for managing people. Two consequences are the point rather than side
+ * effects: an ADMIN cannot invite or remove another ADMIN, so a single
+ * compromised admin account cannot quietly reshape who else has access; and
+ * nobody can act at their own level, which is what stops an admin removing the
+ * peer who would notice.
+ *
+ * Inviting is the same question as removing — minting a role you do not outrank
+ * is privilege escalation with extra steps — so both go through here.
+ */
+export function outranks(actor: Role, target: Role): boolean {
+  return RANK[actor] > RANK[target];
+}
+
+/**
  * Requires at least `minimum`. Used on everything that changes money, billing,
  * pricing or who else can get in.
  */

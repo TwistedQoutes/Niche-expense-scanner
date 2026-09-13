@@ -58,12 +58,6 @@ dead links, and each phase flips its entries on as it lands.
 Named here rather than left to be discovered, because each one has a shape in the
 database or the environment that makes it look present:
 
-- **Teammates cannot be invited.** `Membership` carries roles and
-  `invitedAt`/`acceptedAt`, and role checks are enforced throughout — but nothing
-  creates a membership except signup, so a workspace is one person in practice.
-  The "assign to" selector on a job is therefore always a list of one. (It is also
-  where a cross-tenant leak was found and fixed; see
-  `docs/security-review-phase-14.md`.)
 - **No file uploads.** The `File` model exists, scoped to a lead or a job, and
   nothing writes to it. Before-and-after job photos need a storage driver and an
   upload route.
@@ -72,8 +66,8 @@ database or the environment that makes it look present:
   so travel distance on a quote is whatever the owner types.
 
 Two more, smaller: the end-to-end suite covers signup, the pipeline, tenant
-isolation and quote acceptance, but not billing, the automation worker or the
-missed-call path — those have unit tests only. And `loadSpeed` and `monthlySeries`
+isolation, quote acceptance and team invites, but not billing, the automation
+worker or the missed-call path — those have unit tests only. And `loadSpeed` and `monthlySeries`
 still aggregate in JavaScript what Postgres could aggregate in SQL; the reasoning
 for leaving that alone is in `docs/performance-phase-14.md`.
 
@@ -896,6 +890,69 @@ sells the product still does not depend on the product.
 
 ---
 
+## Team
+
+A workspace starts as one person and grows by invitation. Three rules carry the
+weight, and all three live in `src/lib/team/repository.ts`:
+
+**You can only act on someone you outrank.** `outranks()` is the whole privilege
+model: strictly below, never at your own level. Two consequences are the point
+rather than side effects — an admin cannot invite or remove another admin, so one
+compromised admin account cannot quietly reshape who else has access; and nobody
+can act on themselves, which is what stops an owner demoting the only account that
+could undo it. Inviting a role goes through the same check as removing a person
+holding it, because minting an admin when you are an admin is privilege escalation
+with extra steps.
+
+`OWNER` is not in the invite schema at all. Ownership is transferred, not handed
+out from a form, and the rank check would refuse it anyway — leaving it out means
+the API says "that is not a role you can invite" rather than "you are not
+allowed".
+
+**A seat is a seat whether or not it has been taken.** Pending invitations count
+against the plan (Free 1, Starter 2, Pro 5, Business unlimited — `seatLimitFor`).
+Otherwise the limit is a suggestion: send five invitations on a two-seat plan and
+the third person through the door is the one who finds out. Withdrawing an
+invitation frees its seat again.
+
+**Accepting happens without a session,** so it cannot use a tenant client. The
+organization comes *out of* the token's row, never from anything the caller sends —
+the same shape as the public quote page. An invitation is 256 bits of randomness,
+stored only as a SHA-256 hash, single-use through a conditional update rather than
+a read followed by a write, and expires after seven days.
+
+### An invitation is addressed to an email, not a user
+
+Deliberately not an `AuthToken`. Those hang off a `userId`, and the person being
+invited may not exist yet — `users.passwordHash` is NOT NULL, so issuing one
+through `AuthToken` would mean creating an account that cannot log in and has to be
+swept up if the invitation is never accepted. A `pending invitation` is one row
+with nothing else attached to it.
+
+If the address already has an account, accepting attaches the membership and then
+sends them to sign in. Attaching it on the strength of the emailed token is fine;
+*using* it has to be done by whoever can actually sign in as them.
+
+### Withdrawing, suspending, restoring
+
+Suspended rather than deleted, and that is the choice: the person stops being able
+to sign in on their very next request — `requireAuth` re-reads the membership every
+time and refuses anything but `ACTIVE` — while the jobs they completed keep pointing
+at a real name. Deleting the membership would leave the history attributed to
+nobody, and "who did this job?" is a question a business gets asked months later.
+
+### When email is not configured
+
+Inviting still works, and the link comes back to the inviter to pass on by hand.
+The first version of this refused instead, which was worse in both directions: it
+left the feature dead on any deployment that had not set up Resend yet, and it was
+untestable in a production build, which is what `next start` and therefore CI is.
+It is also what half of small operators will do regardless of what we email. The
+link is returned only when the email did *not* go out, so a token sitting in an
+inbox is not also sitting in a response body.
+
+---
+
 ## Multi-tenancy
 
 Every business's rows live in the same tables, separated by `organizationId`.
@@ -1315,6 +1372,7 @@ before its production secrets were configured, which is the wrong order.
 │   │   │   ├── quotes/            list, create, read, update, send
 │   │   │   ├── reviews/           list, and ask one customer
 │   │   │   ├── services/          list, create, update, delete
+│   │   │   ├── team/              invite, roles, suspend and restore
 │   │   │   ├── settings/          the business's own details
 │   │   │   ├── stripe/            the billing webhook
 │   │   │   └── webhooks/twilio/   inbound texts and call status

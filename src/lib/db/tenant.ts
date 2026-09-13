@@ -66,6 +66,7 @@ import { prisma } from '@/lib/db/client';
  */
 export const TENANT_MODELS = new Set<string>([
   Prisma.ModelName.Membership,
+  Prisma.ModelName.Invitation,
   Prisma.ModelName.Subscription,
   Prisma.ModelName.Customer,
   Prisma.ModelName.Property,

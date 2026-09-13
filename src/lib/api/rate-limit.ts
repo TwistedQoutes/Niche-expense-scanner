@@ -53,6 +53,12 @@ export const RATE_LIMITS = {
    */
   passwordReset: { name: 'password-reset', limit: 5, windowSeconds: 900 },
   billing: { name: 'billing', limit: 20, windowSeconds: 300 },
+  /**
+   * Inviting sends an email to an address the sender types in, which makes it the
+   * one authenticated endpoint that can be pointed at a stranger. Keyed by
+   * organization, and tight: a crew of five is five invitations, not fifty.
+   */
+  invite: { name: 'invite', limit: 10, windowSeconds: 3600 },
   /** Each call costs an OpenAI request. Charged per token, so metered hard. */
   ai: { name: 'ai', limit: 30, windowSeconds: 300 },
   /** Outbound SMS and email cost money per message. */

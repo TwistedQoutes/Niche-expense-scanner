@@ -56,3 +56,41 @@ export async function sendVerificationEmail(userId: string, email: string): Prom
     ].join('\n'),
   });
 }
+
+/**
+ * The invitation itself.
+ *
+ * Named in the subject line, because a bare "You've been invited" from a product
+ * nobody has heard of is indistinguishable from spam — the business's own name is
+ * the only thing in this message the recipient recognises.
+ *
+ * The token is passed in rather than issued here: an invitation is not an
+ * `AuthToken`, since the person may not have an account yet (see
+ * src/lib/team/repository.ts).
+ */
+export async function sendTeamInviteEmail(input: {
+  email: string;
+  token: string;
+  organizationName: string;
+  invitedByName: string | null;
+  roleLabel: string;
+}): Promise<void> {
+  const link = appUrl(`/invite/${encodeURIComponent(input.token)}`);
+  const who = input.invitedByName ? `${input.invitedByName} has` : 'Someone has';
+
+  await sendEmail({
+    to: input.email,
+    subject: `${input.organizationName} invited you to JobFlow AI`,
+    text: [
+      `${who} invited you to join ${input.organizationName} on JobFlow AI as ${input.roleLabel}.`,
+      '',
+      'Open this link to accept:',
+      link,
+      '',
+      'The link works once and expires in seven days.',
+      '',
+      "If you weren't expecting this, you can ignore it — nothing happens until",
+      'you open the link, and it expires on its own.',
+    ].join('\n'),
+  });
+}
