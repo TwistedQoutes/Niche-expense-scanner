@@ -5,10 +5,10 @@ import { useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttribu
 import { cn } from '@/lib/cn';
 
 const CONTROL_BASE =
-  'w-full rounded-xl bg-white px-3.5 py-2.5 text-base text-zinc-900 ring-1 ring-zinc-200 transition ' +
-  'placeholder:text-zinc-400 focus:ring-2 focus:ring-brand-500 disabled:bg-zinc-50 disabled:text-zinc-500 ' +
-  'dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-800 dark:placeholder:text-zinc-500 dark:focus:ring-brand-400 ' +
-  'dark:disabled:bg-zinc-900/50';
+  'w-full rounded-xl bg-white px-3.5 py-2.5 text-base text-slate-900 ring-1 ring-slate-200 transition ' +
+  'placeholder:text-slate-400 focus:ring-2 focus:ring-brand-500 disabled:bg-slate-50 disabled:text-slate-500 ' +
+  'dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-800 dark:placeholder:text-slate-500 dark:focus:ring-brand-400 ' +
+  'dark:disabled:bg-slate-900/50';
 
 const INVALID = 'ring-red-400 focus:ring-red-500 dark:ring-red-800';
 
@@ -32,7 +32,7 @@ function FieldWrapper({ label, hint, error, children }: WrapperProps) {
 
   return (
     <div className="space-y-1.5">
-      <label htmlFor={id} className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+      <label htmlFor={id} className="block text-sm font-medium text-slate-700 dark:text-slate-300">
         {label}
       </label>
 
@@ -43,7 +43,7 @@ function FieldWrapper({ label, hint, error, children }: WrapperProps) {
           {error}
         </p>
       ) : hint ? (
-        <p id={hintId} className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p id={hintId} className="text-sm text-slate-500 dark:text-slate-400">
           {hint}
         </p>
       ) : null}

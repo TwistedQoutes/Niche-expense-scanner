@@ -1,0 +1,233 @@
+import { QuoteStatus } from '@prisma/client';
+import { describe, expect, it } from 'vitest';
+
+import { generatePublicId, isPublicIdShape, withNumberRetry } from '@/lib/quotes/numbering';
+import { effectiveStatus, isExpired, isOpenForResponse } from '@/lib/quotes/repository';
+import { DEFAULT_QUOTE_VALID_DAYS, respondToQuoteSchema } from '@/lib/validation/quotes';
+
+const past = new Date('2026-01-01T00:00:00Z');
+const future = new Date('2099-01-01T00:00:00Z');
+const now = new Date('2026-06-01T00:00:00Z');
+
+describe('public ids', () => {
+  it('are long and unguessable', () => {
+    // This is the whole access control on a quote page: a customer must be able
+    // to open one without an account, so the id in the URL is the credential.
+    const id = generatePublicId();
+    expect(id.length).toBeGreaterThanOrEqual(20);
+    expect(isPublicIdShape(id)).toBe(true);
+  });
+
+  it('are URL-safe', () => {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      expect(generatePublicId()).toMatch(/^[A-Za-z0-9_-]+$/);
+    }
+  });
+
+  it('do not repeat', () => {
+    const seen = new Set<string>();
+    for (let attempt = 0; attempt < 500; attempt += 1) seen.add(generatePublicId());
+    expect(seen.size).toBe(500);
+  });
+
+  it('reject anything that is not the right shape', () => {
+    // Checked before the value reaches Postgres: an id carrying a NUL byte
+    // crashes the query rather than simply missing, and this endpoint is open to
+    // anyone with a URL.
+    expect(isPublicIdShape('')).toBe(false);
+    expect(isPublicIdShape('short')).toBe(false);
+    expect(isPublicIdShape('has spaces in it aaaa')).toBe(false);
+    expect(isPublicIdShape('has/slash/aaaaaaaaaaa')).toBe(false);
+    // Built with fromCharCode so the byte cannot make git treat this file as
+    // binary, while still being a real NUL at runtime.
+    expect(isPublicIdShape(`with${String.fromCharCode(0)}nul${'a'.repeat(20)}`)).toBe(false);
+    expect(isPublicIdShape('a'.repeat(200))).toBe(false);
+  });
+
+  it('are not sequential', () => {
+    // A sequential public id would mean /quote/1002 reveals the next quote —
+    // possibly another business's. The property that rules that out is spread,
+    // not shape: consecutive ids must not cluster. A counter (however encoded)
+    // would share a first character across a whole batch; 128 random bits do
+    // not.
+    const ids = Array.from({ length: 200 }, () => generatePublicId());
+    const firstCharacters = new Set(ids.map((id) => id[0]));
+
+    expect(firstCharacters.size).toBeGreaterThan(20);
+
+    // And generation order must carry no information about ordering.
+    const lexical = [...ids].sort();
+    expect(lexical).not.toEqual(ids);
+  });
+});
+
+describe('expiry', () => {
+  it('treats a passed date as expired even while the row still says SENT', () => {
+    // Nothing sweeps the table flipping rows to EXPIRED, so trusting the stored
+    // status would let a customer accept a three-month-old price.
+    const quote = { status: QuoteStatus.SENT, expiresAt: past };
+    expect(isExpired(quote, now)).toBe(true);
+    expect(effectiveStatus(quote, now)).toBe(QuoteStatus.EXPIRED);
+    expect(isOpenForResponse(quote, now)).toBe(false);
+  });
+
+  it('leaves an open quote alone', () => {
+    const quote = { status: QuoteStatus.SENT, expiresAt: future };
+    expect(isExpired(quote, now)).toBe(false);
+    expect(effectiveStatus(quote, now)).toBe(QuoteStatus.SENT);
+    expect(isOpenForResponse(quote, now)).toBe(true);
+  });
+
+  it('never expires a decision already made', () => {
+    // An accepted quote is the basis of a job. Showing it as expired later would
+    // make the record of what was agreed look invalid.
+    expect(isExpired({ status: QuoteStatus.ACCEPTED, expiresAt: past }, now)).toBe(false);
+    expect(isExpired({ status: QuoteStatus.DECLINED, expiresAt: past }, now)).toBe(false);
+    expect(effectiveStatus({ status: QuoteStatus.ACCEPTED, expiresAt: past }, now)).toBe(
+      QuoteStatus.ACCEPTED,
+    );
+  });
+
+  it('treats a quote with no expiry as open forever', () => {
+    expect(isExpired({ status: QuoteStatus.SENT, expiresAt: null }, now)).toBe(false);
+  });
+
+  it('expires exactly on the boundary', () => {
+    // Held "until" a moment means the moment itself is too late, so the
+    // comparison has to be inclusive.
+    expect(isExpired({ status: QuoteStatus.SENT, expiresAt: now }, now)).toBe(true);
+  });
+});
+
+describe('who can respond', () => {
+  it.each([QuoteStatus.SENT, QuoteStatus.VIEWED, QuoteStatus.CHANGES_REQUESTED])(
+    'allows a response on %s',
+    (status) => {
+      expect(isOpenForResponse({ status, expiresAt: future }, now)).toBe(true);
+    },
+  );
+
+  it('does not reopen a draft', () => {
+    // A draft's publicId exists from creation, so the guard cannot rely on the
+    // link being secret.
+    expect(isOpenForResponse({ status: QuoteStatus.DRAFT, expiresAt: future }, now)).toBe(false);
+  });
+
+  it.each([QuoteStatus.ACCEPTED, QuoteStatus.DECLINED, QuoteStatus.EXPIRED])(
+    'does not allow a second response on %s',
+    (status) => {
+      expect(isOpenForResponse({ status, expiresAt: future }, now)).toBe(false);
+    },
+  );
+});
+
+describe('withNumberRetry', () => {
+  const collision = Object.assign(new Error('unique'), { code: 'P2002' });
+
+  it('returns on the first success', async () => {
+    let calls = 0;
+    const result = await withNumberRetry(
+      async (number) => {
+        calls += 1;
+        return number;
+      },
+      async () => 'Q-1001',
+    );
+
+    expect(result).toBe('Q-1001');
+    expect(calls).toBe(1);
+  });
+
+  it('retries with a fresh number after losing a race', async () => {
+    // Two simultaneous creates read the same maximum; the loser gets a unique
+    // violation and has to try again rather than fail the request.
+    const numbers = ['Q-1001', 'Q-1002'];
+    let attempt = 0;
+
+    const result = await withNumberRetry(
+      async (number) => {
+        attempt += 1;
+        if (attempt === 1) throw collision;
+        return number;
+      },
+      async () => numbers[attempt] ?? 'Q-9999',
+    );
+
+    expect(result).toBe('Q-1002');
+    expect(attempt).toBe(2);
+  });
+
+  it('gives up after a bounded number of attempts', async () => {
+    // A business colliding three times running is not a real scenario; an
+    // unbounded loop is.
+    let attempts = 0;
+
+    await expect(
+      withNumberRetry(
+        async () => {
+          attempts += 1;
+          throw collision;
+        },
+        async () => 'Q-1001',
+      ),
+    ).rejects.toBe(collision);
+
+    expect(attempts).toBe(3);
+  });
+
+  it('does not swallow an unrelated failure', async () => {
+    const boom = new Error('database on fire');
+
+    await expect(
+      withNumberRetry(
+        async () => {
+          throw boom;
+        },
+        async () => 'Q-1001',
+      ),
+    ).rejects.toBe(boom);
+  });
+});
+
+describe('the customer response schema', () => {
+  it('accepts the three actions', () => {
+    for (const action of ['accept', 'decline', 'changes']) {
+      expect(respondToQuoteSchema.safeParse({ action }).success).toBe(true);
+    }
+  });
+
+  it('rejects anything else', () => {
+    expect(respondToQuoteSchema.safeParse({ action: 'delete' }).success).toBe(false);
+    expect(respondToQuoteSchema.safeParse({}).success).toBe(false);
+  });
+
+  it('takes a note on any action, not just changes', () => {
+    // Someone declining often explains why, and that reason is worth more to the
+    // business than a tidy schema.
+    const parsed = respondToQuoteSchema.safeParse({ action: 'decline', note: 'Went elsewhere.' });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.note).toBe('Went elsewhere.');
+  });
+
+  it('strips a NUL byte out of a customer note', () => {
+    const parsed = respondToQuoteSchema.safeParse({ action: 'changes', note: `Back${String.fromCharCode(0)}garden` });
+    expect(parsed.success && parsed.data.note).toBe('Backgarden');
+  });
+
+  it('turns a blank note into null', () => {
+    const parsed = respondToQuoteSchema.safeParse({ action: 'accept', note: '   ' });
+    expect(parsed.success && parsed.data.note).toBeNull();
+  });
+
+  it('caps a very long note', () => {
+    expect(
+      respondToQuoteSchema.safeParse({ action: 'changes', note: 'x'.repeat(2001) }).success,
+    ).toBe(false);
+  });
+});
+
+describe('defaults', () => {
+  it('holds a price for a month', () => {
+    expect(DEFAULT_QUOTE_VALID_DAYS).toBe(30);
+  });
+});

@@ -8,7 +8,7 @@ import { Alert } from '@/components/ui/Alert';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/Field';
 import { ApiError, apiRequest } from '@/lib/api-client';
-import { PASSWORD_MIN_LENGTH } from '@/lib/validation';
+import { PASSWORD_MIN_LENGTH } from '@/lib/validation/auth';
 
 export function ResetPasswordForm({ token }: { token: string | undefined }) {
   const router = useRouter();
@@ -35,7 +35,10 @@ export function ResetPasswordForm({ token }: { token: string | undefined }) {
 
     try {
       await apiRequest('/api/auth/reset-password', { method: 'POST', body: { token, password } });
-      router.replace('/dashboard');
+      // Straight to sign-in, not to the dashboard: resetting a password
+      // revokes every session including this browser's, so the dashboard would
+      // only bounce them back here with no explanation.
+      router.replace('/login?reset=1');
       router.refresh();
     } catch (caught) {
       if (caught instanceof ApiError) {
@@ -50,7 +53,7 @@ export function ResetPasswordForm({ token }: { token: string | undefined }) {
 
   if (!token) {
     return (
-      <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-5 py-10">
+      <div className="w-full max-w-sm">
         <Alert tone="error" title="That link is incomplete">
           Open the link from your email again, or request a fresh one.
         </Alert>
@@ -59,14 +62,14 @@ export function ResetPasswordForm({ token }: { token: string | undefined }) {
             Request a new link
           </Button>
         </Link>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-5 py-10">
+    <div className="w-full max-w-sm">
       <h1 className="text-2xl font-bold tracking-tight">Choose a new password</h1>
-      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
         This also signs you out everywhere else.
       </p>
 
@@ -105,6 +108,6 @@ export function ResetPasswordForm({ token }: { token: string | undefined }) {
           Set the new password
         </Button>
       </form>
-    </main>
+    </div>
   );
 }

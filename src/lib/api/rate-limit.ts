@@ -3,10 +3,10 @@ import { rateLimited } from '@/lib/api/errors';
 /**
  * Fixed-window rate limiter, in memory.
  *
- * Enough to blunt credential stuffing and OCR-endpoint abuse on a single-node
- * prototype. It is deliberately simple and deliberately per-process: behind
- * more than one instance, swap `hit()` for a Redis/Upstash counter — the call
- * sites do not change.
+ * Enough to blunt credential stuffing, quote-page scraping and AI-endpoint
+ * abuse on a single-node deployment. It is deliberately simple and deliberately
+ * per-process: behind more than one instance, swap the counter in `hit()` for
+ * Redis/Upstash — the call sites do not change.
  */
 type Window = { count: number; resetAt: number };
 
@@ -31,21 +31,21 @@ export type RateLimitRule = {
 /**
  * Limits are per IP, and an IP is not a person.
  *
- * Mobile carriers put thousands of subscribers behind one address, and a studio
- * or a convention hall is a single address shared by everyone in it — which is
- * precisely the population this app is sold to. Limits tight enough to feel
- * safe on paper lock out a room full of legitimate artists, and a signup
- * failure at that moment is a customer lost rather than an attack stopped.
+ * A landscaping crew shares one office connection, and several people on one
+ * carrier NAT share one address. Limits tight enough to feel safe on paper lock
+ * out a whole business mid-morning, and a lockout at the moment someone is
+ * quoting a job is a customer lost rather than an attack stopped.
  *
- * So these are set to the point where they still cost an attacker real time —
- * 30 login attempts per 5 minutes against a 10-character minimum password is
- * not a viable brute force — while leaving room for a shared connection.
+ * So these sit where they still cost an attacker real time — 30 login attempts
+ * per five minutes against a 10-character minimum password is not a viable
+ * brute force — while leaving room for a shared connection.
  */
 export const RATE_LIMITS = {
   login: { name: 'login', limit: 30, windowSeconds: 300 },
   signup: { name: 'signup', limit: 20, windowSeconds: 3600 },
-  parse: { name: 'parse', limit: 60, windowSeconds: 300 },
-  write: { name: 'write', limit: 120, windowSeconds: 300 },
+  /** General authenticated writes: leads, customers, quote edits. */
+  write: { name: 'write', limit: 240, windowSeconds: 300 },
+  read: { name: 'read', limit: 600, windowSeconds: 300 },
   export: { name: 'export', limit: 20, windowSeconds: 300 },
   /**
    * Deliberately tight: every accepted request sends an email, so abuse costs
@@ -53,12 +53,37 @@ export const RATE_LIMITS = {
    */
   passwordReset: { name: 'password-reset', limit: 5, windowSeconds: 900 },
   billing: { name: 'billing', limit: 20, windowSeconds: 300 },
+  /**
+   * Inviting sends an email to an address the sender types in, which makes it the
+   * one authenticated endpoint that can be pointed at a stranger. Keyed by
+   * organization, and tight: a crew of five is five invitations, not fifty.
+   */
+  invite: { name: 'invite', limit: 10, windowSeconds: 3600 },
+  /** Each call costs an OpenAI request. Charged per token, so metered hard. */
+  ai: { name: 'ai', limit: 30, windowSeconds: 300 },
+  /** Outbound SMS and email cost money per message. */
+  messaging: { name: 'messaging', limit: 60, windowSeconds: 300 },
+  /**
+   * The public quote page. Unauthenticated by design — a customer must be able
+   * to open it without an account — so it needs its own ceiling to stop someone
+   * walking the id space looking for other businesses' quotes.
+   */
+  publicQuote: { name: 'public-quote', limit: 120, windowSeconds: 300 },
+  /** Accepting or declining a quote is a one-time act, not a hot path. */
+  publicQuoteAction: { name: 'public-quote-action', limit: 20, windowSeconds: 900 },
+  /** The customer intake form is public and writes a lead on every success. */
+  intake: { name: 'intake', limit: 10, windowSeconds: 900 },
+  /**
+   * Starting a demo provisions a whole seeded workspace, so it is the cheapest
+   * request in the product to abuse and the most expensive to serve. Tight.
+   */
+  demo: { name: 'demo', limit: 3, windowSeconds: 3600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 /**
  * Records a hit and throws `AppError('rate_limited')` once the rule is exceeded.
- * `identifier` should be the most specific thing available — a user id when the
- * caller is authenticated, otherwise the client IP.
+ * `identifier` should be the most specific thing available — an organization id
+ * when the caller is authenticated, otherwise the client IP.
  */
 export function enforceRateLimit(rule: RateLimitRule, identifier: string): void {
   const now = Date.now();
@@ -76,6 +101,11 @@ export function enforceRateLimit(rule: RateLimitRule, identifier: string): void 
   if (existing.count > rule.limit) {
     throw rateLimited(Math.max(1, Math.ceil((existing.resetAt - now) / 1000)));
   }
+}
+
+/** Test-only: forget every counter so cases do not bleed into one another. */
+export function resetRateLimits(): void {
+  windows.clear();
 }
 
 /**

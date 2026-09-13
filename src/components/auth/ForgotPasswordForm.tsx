@@ -32,7 +32,7 @@ export function ForgotPasswordForm() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-5 py-10">
+    <div className="w-full max-w-sm">
       <h1 className="text-2xl font-bold tracking-tight">Reset your password</h1>
 
       {sent ? (
@@ -42,7 +42,7 @@ export function ForgotPasswordForm() {
           <Alert tone="success" title="Check your email">
             If that address has an account, a reset link is on its way. It expires in an hour.
           </Alert>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-slate-600 dark:text-slate-400">
             Nothing arrived? Check spam, then{' '}
             <button
               type="button"
@@ -61,7 +61,7 @@ export function ForgotPasswordForm() {
         </div>
       ) : (
         <>
-          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             We&rsquo;ll email you a link to choose a new one.
           </p>
 
@@ -86,13 +86,13 @@ export function ForgotPasswordForm() {
             </Button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
             <Link href="/login" className="text-brand-600 dark:text-brand-400 font-medium hover:underline">
               Back to sign in
             </Link>
           </p>
         </>
       )}
-    </main>
+    </div>
   );
 }

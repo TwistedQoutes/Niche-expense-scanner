@@ -3,16 +3,27 @@ import { SignJWT, jwtVerify } from 'jose';
 
 import { getEnv } from '@/lib/env';
 
-export const SESSION_COOKIE = 'nes_session';
+export const SESSION_COOKIE = 'jobflow_session';
 
-const ISSUER = 'niche-expense-scanner';
-const AUDIENCE = 'niche-expense-scanner:app';
+const ISSUER = 'jobflow-ai';
+const AUDIENCE = 'jobflow-ai:app';
 
+/**
+ * What a signed-in request carries.
+ *
+ * `organizationId` is in the token rather than resolved per request from a URL
+ * or a header, and that is the whole tenancy story in one decision: the tenant
+ * a request acts in is decided at sign-in, by the server, and a client has no
+ * input into it. Every tenant-scoped query is built from this value (see
+ * `forOrganization` in src/lib/db/tenant.ts), so there is no code path where a
+ * user-supplied id could select the tenant.
+ */
 export type SessionPayload = {
   userId: string;
   email: string;
+  organizationId: string;
   /**
-   * The user's `sessionVersion` at the time this token was issued.
+   * The user's `sessionVersion` when this token was issued.
    *
    * A JWT is self-contained, which normally means it cannot be revoked before
    * it expires — so a password change would leave a stolen session valid for up
@@ -29,7 +40,11 @@ function secretKey(): Uint8Array {
 export async function createSessionToken(payload: SessionPayload): Promise<string> {
   const { SESSION_MAX_AGE } = getEnv();
 
-  return new SignJWT({ email: payload.email, sv: payload.sessionVersion })
+  return new SignJWT({
+    email: payload.email,
+    org: payload.organizationId,
+    sv: payload.sessionVersion,
+  })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setSubject(payload.userId)
     .setIssuer(ISSUER)
@@ -48,16 +63,25 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
       algorithms: ['HS256'],
     });
 
-    if (typeof payload.sub !== 'string' || typeof payload.email !== 'string') {
+    if (
+      typeof payload.sub !== 'string' ||
+      typeof payload.email !== 'string' ||
+      typeof payload.org !== 'string'
+    ) {
+      // A token without an organization cannot be scoped to one, and falling
+      // back to "any organization" is precisely the bug this design exists to
+      // prevent. Reject it and make them sign in again.
       return null;
     }
 
-    // Tokens issued before session versioning existed have no `sv`; treating a
-    // missing value as 0 keeps them valid until they expire naturally rather
-    // than signing everyone out on deploy.
     const sessionVersion = typeof payload.sv === 'number' ? payload.sv : 0;
 
-    return { userId: payload.sub, email: payload.email, sessionVersion };
+    return {
+      userId: payload.sub,
+      email: payload.email,
+      organizationId: payload.org,
+      sessionVersion,
+    };
   } catch {
     // Expired, tampered with, or signed by a rotated secret — all the same to us.
     return null;

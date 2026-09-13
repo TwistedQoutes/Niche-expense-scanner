@@ -10,11 +10,11 @@ const VARIANTS: Record<Variant, string> = {
   primary:
     'bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800 disabled:bg-brand-300 dark:disabled:bg-brand-900',
   secondary:
-    'bg-white text-zinc-900 ring-1 ring-zinc-200 hover:bg-zinc-50 active:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-800 dark:hover:bg-zinc-800',
+    'bg-white text-slate-900 ring-1 ring-slate-200 hover:bg-slate-50 active:bg-slate-100 dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-800 dark:hover:bg-slate-800',
   ghost:
-    'bg-transparent text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100',
+    'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100',
   danger:
-    'bg-white text-red-600 ring-1 ring-red-200 hover:bg-red-50 dark:bg-zinc-900 dark:text-red-400 dark:ring-red-900/60 dark:hover:bg-red-950/40',
+    'bg-white text-red-600 ring-1 ring-red-200 hover:bg-red-50 dark:bg-slate-900 dark:text-red-400 dark:ring-red-900/60 dark:hover:bg-red-950/40',
 };
 
 const SIZES: Record<Size, string> = {
