@@ -11,8 +11,8 @@ import { defineConfig } from 'prisma/config';
  *
  * This config is loaded for every Prisma command, including `generate` — which
  * only reads the schema and writes TypeScript, and never opens a connection.
- * Throwing on a missing URL therefore broke `npm ci` (via postinstall) and
- * `npm run build` on any host before its environment was configured, which is
+ * Throwing on a missing URL would break `npm ci` (via postinstall) and
+ * `npm run build` on any host before its environment is configured, which is
  * exactly the wrong order: you cannot set build-time secrets on a deploy that
  * has never built.
  *
@@ -25,6 +25,9 @@ const DATABASE_URL =
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',
+  migrations: {
+    seed: 'node --env-file=.env scripts/seed.mjs',
+  },
   datasource: {
     url: DATABASE_URL,
   },

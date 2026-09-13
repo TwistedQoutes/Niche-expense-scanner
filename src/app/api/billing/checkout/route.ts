@@ -1,71 +1,105 @@
-import { AppError } from '@/lib/api/errors';
-import { withRoute } from '@/lib/api/handler';
+import { PlanTier, Role } from '@prisma/client';
+import { z } from 'zod';
+
+import { AppError, badGateway, conflict, notImplemented, validationFailed } from '@/lib/api/errors';
+import { readJsonBody, withRoute } from '@/lib/api/handler';
 import { RATE_LIMITS, enforceRateLimit } from '@/lib/api/rate-limit';
-import { jsonOk } from '@/lib/api/response';
-import { requireUser } from '@/lib/auth/current-user';
-import { getStripe } from '@/lib/billing/stripe';
-import { prisma } from '@/lib/db';
+import { jsonOk, toFieldErrors } from '@/lib/api/response';
+import { requireRole } from '@/lib/auth/context';
+import { prisma } from '@/lib/db/client';
 import { getEnv } from '@/lib/env';
+import { StripeError, billingEnabled, createCheckoutSession, priceIdFor } from '@/lib/stripe/client';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const bodySchema = z.object({
+  /**
+   * FREE is not a checkout. Downgrading to it is a cancellation, which happens in
+   * Stripe's portal, so accepting it here would create a checkout for nothing.
+   */
+  tier: z.enum([PlanTier.STARTER, PlanTier.PRO, PlanTier.BUSINESS]),
+});
 
 /**
- * Starts a Stripe Checkout session and hands back its URL.
+ * Starts a hosted checkout.
  *
- * Checkout rather than a card form on our own page, deliberately: card details
- * never touch this server, which keeps PCI scope at the smallest possible tier
- * and means a bug in this codebase cannot leak a card number.
+ * OWNER only. This commits the business to a recurring charge, which is not a
+ * decision an admin — let alone a crew member — should be able to make on the
+ * owner's card.
+ *
+ * The organization is taken from the verified session, never from the body. That
+ * is the whole security property here: a caller cannot buy a plan for, or on
+ * behalf of, another workspace.
  */
-export const POST = withRoute(async () => {
-  const user = await requireUser();
-  enforceRateLimit(RATE_LIMITS.billing, user.id);
+export const POST = withRoute(async (request) => {
+  const auth = await requireRole(Role.OWNER);
+  enforceRateLimit(RATE_LIMITS.billing, auth.organization.id);
 
-  const stripe = getStripe();
-  const env = getEnv();
-
-  if (!stripe || !env.STRIPE_PRICE_ID) {
-    throw new AppError('not_found', 'Billing is not enabled on this installation.');
+  /*
+   * Checked before anything else, including whether Stripe is configured at all.
+   *
+   * A guard that only applies on deployments with billing keys set is a guard a
+   * configuration change can switch off, and this one exists to stop somebody
+   * paying for a workspace that is deleted within the day.
+   */
+  if (auth.organization.isDemo) {
+    throw conflict(
+      'This is a demo workspace, so there is nothing to subscribe to. Sign up for a real one to pick a plan.',
+    );
   }
 
-  // Reuse the customer if we have made one, so a returning subscriber does not
-  // accumulate duplicate Stripe customers with split payment history.
-  let customerId = user.stripeCustomerId;
-
-  if (!customerId) {
-    const customer = await stripe.customers.create({
-      email: user.email,
-      name: user.studioName ?? undefined,
-      // Lets us find our user from a webhook even if the local row is mid-write.
-      metadata: { userId: user.id },
-    });
-    customerId = customer.id;
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { stripeCustomerId: customerId },
-    });
+  if (!billingEnabled()) {
+    throw notImplemented(
+      'Billing is not configured on this deployment, so there is nothing to buy yet.',
+    );
   }
 
-  const session = await stripe.checkout.sessions.create({
-    mode: 'subscription',
-    customer: customerId,
-    line_items: [{ price: env.STRIPE_PRICE_ID, quantity: 1 }],
-    success_url: `${env.APP_URL}/settings?checkout=success`,
-    cancel_url: `${env.APP_URL}/settings?checkout=cancelled`,
-    // Carried through to every webhook this session produces, so the handler
-    // never has to guess which account paid.
-    client_reference_id: user.id,
-    subscription_data: { metadata: { userId: user.id } },
-    allow_promotion_codes: true,
-    // Stripe Tax: SaaS is taxable in many US states and across the EU. Enabling
-    // it here is far cheaper than reconstructing what was owed later.
-    automatic_tax: { enabled: true },
-    customer_update: { address: 'auto' },
+  const parsed = bodySchema.safeParse(await readJsonBody(request));
+  if (!parsed.success) throw validationFailed(toFieldErrors(parsed.error));
+
+  const priceId = priceIdFor(parsed.data.tier);
+  if (!priceId) {
+    // A plan with no price configured cannot be sold, and saying so plainly beats
+    // a Stripe error about a missing price.
+    throw notImplemented(`The ${parsed.data.tier} plan is not available on this deployment.`);
+  }
+
+  const subscription = await prisma.subscription.findUnique({
+    where: { organizationId: auth.organization.id },
+    select: { stripeCustomerId: true, trialEndsAt: true, plan: true, status: true },
   });
 
-  if (!session.url) {
-    throw new AppError('internal_error', 'Stripe did not return a checkout URL.');
-  }
+  const appUrl = getEnv().APP_URL.replace(/\/+$/, '');
 
-  return jsonOk({ url: session.url });
+  try {
+    const session = await createCheckoutSession({
+      organizationId: auth.organization.id,
+      tier: parsed.data.tier,
+      priceId,
+      customerEmail: auth.user.email,
+      stripeCustomerId: subscription?.stripeCustomerId ?? null,
+      successUrl: `${appUrl}/billing?checkout=done`,
+      cancelUrl: `${appUrl}/billing?checkout=cancelled`,
+      trialEndsAt: subscription?.trialEndsAt ?? null,
+    });
+
+    if (!session.url) {
+      throw badGateway('Stripe did not return a checkout link. Try again in a moment.');
+    }
+
+    return jsonOk({ url: session.url });
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+
+    if (error instanceof StripeError) {
+      // Stripe's own message is shown: it is written for the person paying, and
+      // hiding it behind "something went wrong" sends them to support instead.
+      throw error.retryable
+        ? badGateway(`Stripe is not responding: ${error.message}`)
+        : conflict(error.message);
+    }
+
+    throw error;
+  }
 });

@@ -43,9 +43,9 @@ export function VerifyEmail({ token }: { token: string | undefined }) {
   }, [token]);
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-5 py-10">
+    <div className="w-full max-w-sm">
       {state === 'working' ? (
-        <p className="flex items-center gap-3 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
           <Spinner className="size-4" label="Confirming" />
           Confirming your email…
         </p>
@@ -72,6 +72,6 @@ export function VerifyEmail({ token }: { token: string | undefined }) {
           </Link>
         </>
       )}
-    </main>
+    </div>
   );
 }

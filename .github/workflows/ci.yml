@@ -17,12 +17,6 @@ concurrency:
 permissions:
   contents: read
 
-# The application lives in jobflow/. Every step runs there rather than at the
-# repository root, which still holds the earlier project this repo began as.
-defaults:
-  run:
-    working-directory: jobflow
-
 jobs:
   verify:
     name: Verify (Node ${{ matrix.node }})
@@ -80,7 +74,7 @@ jobs:
           node-version: ${{ matrix.node }}
           # Caches ~/.npm, keyed on the lockfile.
           cache: npm
-          cache-dependency-path: jobflow/package-lock.json
+          cache-dependency-path: package-lock.json
 
       # Next's own CI guidance (node_modules/next/dist/docs/01-app/02-guides/
       # ci-build-caching.md). Keyed on the lockfile plus sources, with a
@@ -88,11 +82,11 @@ jobs:
       - name: Restore the Next.js build cache
         uses: actions/cache@v6
         with:
-          path: ${{ github.workspace }}/jobflow/.next/cache
+          path: ${{ github.workspace }}/.next/cache
           key: >-
-            ${{ runner.os }}-node${{ matrix.node }}-next-${{ hashFiles('jobflow/package-lock.json') }}-${{ hashFiles('jobflow/src/**') }}
+            ${{ runner.os }}-node${{ matrix.node }}-next-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**') }}
           restore-keys: |
-            ${{ runner.os }}-node${{ matrix.node }}-next-${{ hashFiles('jobflow/package-lock.json') }}-
+            ${{ runner.os }}-node${{ matrix.node }}-next-${{ hashFiles('package-lock.json') }}-
             ${{ runner.os }}-node${{ matrix.node }}-next-
 
       - name: Install dependencies
@@ -181,7 +175,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: jobflow/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -211,6 +205,6 @@ jobs:
         with:
           name: playwright-report-${{ matrix.project }}
           path: |
-            jobflow/playwright-report/
-            jobflow/test-results/
+            playwright-report/
+            test-results/
           retention-days: 7

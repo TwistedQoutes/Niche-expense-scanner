@@ -1,33 +1,40 @@
 @import 'tailwindcss';
 
 /*
- * Design language
- * ---------------
- * Minimalist, high-contrast, mobile-first. The palette is built around a single
- * violet-ink accent against near-neutral zinc surfaces — restrained enough to
- * read as a tool rather than a toy, with the accent reserved for actions and
- * category colour-coding so nothing competes with the data.
+ * JobFlow AI — design language
+ * ----------------------------
+ * A tool for people who are standing in someone's front yard holding a phone.
+ * That constrains the design more than any style reference does: high contrast,
+ * large touch targets, numbers that are legible in sunlight, and no decoration
+ * that costs a tap.
  *
- * Dark mode follows the device setting (`prefers-color-scheme`), because most
- * of this app gets used on a phone in a dimly-lit studio.
+ * The palette is a deep green — the trades this launches into are green ones,
+ * and green also reads as "money in, job won", which is what every primary
+ * action here does. Slate carries the surfaces so the accent is reserved for
+ * actions and pipeline state, and never competes with the data.
+ *
+ * Status colours are semantic and fixed: a quote is amber while it waits, green
+ * when accepted, red when declined, in the pipeline and on the dashboard alike.
+ * An owner should be able to read the state of their business from across the
+ * room without reading a word.
  */
 
 @theme {
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 
-  /* The ink accent. */
-  --color-brand-50: #f5f3ff;
-  --color-brand-100: #ede9fe;
-  --color-brand-200: #ddd6fe;
-  --color-brand-300: #c4b5fd;
-  --color-brand-400: #a78bfa;
-  --color-brand-500: #8b5cf6;
-  --color-brand-600: #7c3aed;
-  --color-brand-700: #6d28d9;
-  --color-brand-800: #5b21b6;
-  --color-brand-900: #4c1d95;
-  --color-brand-950: #2e1065;
+  /* The brand accent. */
+  --color-brand-50: #ecfdf5;
+  --color-brand-100: #d1fae5;
+  --color-brand-200: #a7f3d0;
+  --color-brand-300: #6ee7b7;
+  --color-brand-400: #34d399;
+  --color-brand-500: #10b981;
+  --color-brand-600: #059669;
+  --color-brand-700: #047857;
+  --color-brand-800: #065f46;
+  --color-brand-900: #064e3b;
+  --color-brand-950: #022c22;
 
   /* Safe-area-aware spacing for the fixed bottom navigation on iOS. */
   --spacing-safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -40,7 +47,7 @@
   }
 
   body {
-    @apply bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-50;
+    @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-50;
     /* Prevents the iOS rubber-band effect revealing a mismatched background. */
     overscroll-behavior-y: none;
   }
@@ -51,7 +58,7 @@
     @apply outline-brand-600 dark:outline-brand-400 outline-2 outline-offset-2;
   }
 
-  /* Numeric columns line up when the digits are the same width. */
+  /* Money and counts line up when the digits are the same width. */
   .tabular {
     font-variant-numeric: tabular-nums;
   }
@@ -73,4 +80,17 @@
   &::-webkit-scrollbar {
     display: none;
   }
+}
+
+/* Horizontal scroll for the Kanban board and wide tables, without the bar
+   eating a row of pixels on desktop. */
+@utility scroll-shadow {
+  background:
+    linear-gradient(to right, var(--color-white) 30%, transparent),
+    linear-gradient(to right, transparent, var(--color-white) 70%) 100% 0;
+  background-repeat: no-repeat;
+  background-size:
+    40px 100%,
+    40px 100%;
+  background-attachment: local, local;
 }

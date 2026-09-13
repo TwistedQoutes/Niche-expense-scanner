@@ -4,6 +4,22 @@ import { AppError } from '@/lib/api/errors';
 import { jsonError, toFieldErrors } from '@/lib/api/response';
 
 /**
+ * Whether this "error" is Next.js signalling a redirect or a not-found.
+ *
+ * Identified by the `digest` string the framework stamps on them, which is the
+ * only part of the mechanism that is observable from here — importing the
+ * framework's own type guard would mean depending on an internal path.
+ */
+function isFrameworkControlFlow(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('digest' in error)) return false;
+
+  const digest = (error as { digest?: unknown }).digest;
+  if (typeof digest !== 'string') return false;
+
+  return digest === 'NEXT_NOT_FOUND' || digest.startsWith('NEXT_REDIRECT');
+}
+
+/**
  * Wraps a route handler so no unhandled rejection ever escapes as an opaque
  * Next.js 500 page.
  *
@@ -13,6 +29,11 @@ import { jsonError, toFieldErrors } from '@/lib/api/response';
  * - `ZodError`   → 422 with per-field messages (a validation slip that got past
  *                  an explicit `safeParse`).
  * - anything else → logged with a correlation id, returned as a generic 500.
+ *
+ * The exception is Next's own control flow. `redirect()` and `notFound()` work by
+ * throwing, so a catch-all like this one turns them into 500s: the redirect never
+ * happens and the log fills with incidents that are not incidents. They are
+ * re-thrown for the framework to handle.
  */
 export function withRoute<Args extends unknown[]>(
   handler: (request: Request, ...args: Args) => Promise<Response>,
@@ -21,6 +42,8 @@ export function withRoute<Args extends unknown[]>(
     try {
       return await handler(request, ...args);
     } catch (error) {
+      if (isFrameworkControlFlow(error)) throw error;
+
       if (error instanceof AppError) {
         return jsonError(error);
       }

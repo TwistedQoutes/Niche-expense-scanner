@@ -3,7 +3,7 @@ import { issueToken } from '@/lib/auth/tokens';
 import { sendEmail } from '@/lib/email';
 
 /**
- * The two transactional emails the app sends.
+ * The transactional emails the auth system sends.
  *
  * Plain text on purpose. A password-reset email is the single most phished
  * message a product sends, and a plain, short, link-once message is both harder
@@ -22,7 +22,7 @@ export async function sendPasswordResetEmail(userId: string, email: string): Pro
 
   await sendEmail({
     to: email,
-    subject: 'Reset your Niche Expense Scanner password',
+    subject: 'Reset your JobFlow AI password',
     text: [
       'Someone asked to reset the password for this email address.',
       '',
@@ -45,10 +45,11 @@ export async function sendVerificationEmail(userId: string, email: string): Prom
     to: email,
     subject: 'Confirm your email address',
     text: [
-      'Welcome to Niche Expense Scanner.',
+      'Welcome to JobFlow AI.',
       '',
-      'Confirming your email means you can recover your account if you ever',
-      'forget your password — worth doing now rather than at tax time:',
+      'Confirming your email means quotes you send come from an address your',
+      'customers can reply to, and that you can recover this account if you',
+      'ever forget your password:',
       link,
       '',
       'The link is good for three days.',
