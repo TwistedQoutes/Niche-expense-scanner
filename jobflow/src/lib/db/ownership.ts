@@ -32,6 +32,15 @@ import type { TenantClient } from '@/lib/db/tenant';
  * A miss is reported as "does not exist" rather than "belongs to someone else",
  * for the same reason every other lookup here is: the difference between those
  * two answers is itself information about another business.
+ *
+ * Since this was written, the database enforces the same rule underneath: every
+ * relation between two tenant-owned models references `(organizationId, id)`, so
+ * a cross-tenant reference is a row Postgres refuses (see
+ * prisma/migrations/20260913000000_tenant_composite_foreign_keys). That makes this
+ * module the *first* line rather than the only one, and it is still worth having:
+ * a foreign-key violation surfaces as a 500 with a Postgres error in it, where
+ * this gives the caller the same 404 as any other unknown id. Belt and braces,
+ * with the braces doing the talking.
  */
 
 /** The relation ids callers are allowed to supply, across every write path. */

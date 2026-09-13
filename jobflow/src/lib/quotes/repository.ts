@@ -208,8 +208,10 @@ export async function createQuote(db: TenantClient, args: CreateQuoteArgs) {
           priceOverridden: breakdown.overridden,
 
           items: {
+            // No `organizationId` here: the line's tenant comes from the quote it
+            // belongs to, through the composite foreign key, and Prisma rejects
+            // setting it a second time. One fewer place for the two to disagree.
             create: items.map((item, index) => ({
-              organizationId: args.organizationId,
               serviceId: item.serviceId ?? null,
               name: item.name,
               description: item.description ?? null,

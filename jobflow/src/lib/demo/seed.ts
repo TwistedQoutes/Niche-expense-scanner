@@ -313,7 +313,8 @@ export async function seedDemoWorkspace(
         items: {
           create: [
             {
-              organizationId,
+              // The line inherits its tenant from the quote, through the
+              // composite foreign key.
               serviceId: mowing?.id ?? null,
               name: entry.seed.service,
               quantityMilli: 1_000,

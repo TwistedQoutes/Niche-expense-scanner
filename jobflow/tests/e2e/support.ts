@@ -132,3 +132,41 @@ export async function api<T = unknown>(
     { path, method: init.method, body: init.body },
   ) as Promise<ApiResult<T>>;
 }
+
+/**
+ * Adds a lead through the real form and waits for the write to land.
+ *
+ * The waiting is the point. The obvious version of this — click, then
+ * `waitForURL(/\/leads/)` — is broken in a way that hides itself: the form is at
+ * `/leads/new`, which already matches that pattern, so the wait returns
+ * immediately and the next `goto` cancels the POST still in flight. The lead is
+ * never created, and the failure surfaces later as "the board is empty", which
+ * reads like a product bug. It also passes whenever the request happens to win
+ * the race, which is how it survived two green runs before failing twice.
+ *
+ * So wait for the response, and say so if it was not created.
+ */
+export async function addLead(
+  page: Page,
+  who: { firstName: string; lastName?: string; phone: string },
+): Promise<void> {
+  await page.goto('/leads/new');
+  await page.getByLabel('First name').fill(who.firstName);
+  if (who.lastName) await page.getByLabel('Last name').fill(who.lastName);
+  await page.getByLabel('Phone').fill(who.phone);
+
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/api/leads') && r.request().method() === 'POST',
+    ),
+    page.getByRole('button', { name: /add|save|create/i }).first().click(),
+  ]);
+
+  if (response.status() !== 201) {
+    throw new Error(`Creating a lead failed with ${response.status()}: ${await response.text()}`);
+  }
+
+  // The form redirects to the new lead on success. Landing anywhere else means
+  // the client threw after a successful write, which is still a failure.
+  await page.waitForURL(/\/leads\/(?!new$)[^/]+$/, { timeout: 30_000 });
+}

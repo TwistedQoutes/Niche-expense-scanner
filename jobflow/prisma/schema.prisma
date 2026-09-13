@@ -9,6 +9,40 @@
 //
 // Money is stored as integer minor units (cents). Floating-point currency is
 // how a quote for $1,234.56 becomes $1,234.5599999 in a customer's inbox.
+//
+// ── Composite foreign keys, and the warning they produce ─────────────────────
+//
+// Filtering queries is not enough on its own. The tenant client rewrites the
+// top-level `where` of the model being queried, but a foreign key is a plain
+// cuid in a column, and nothing stopped one business's row from pointing at
+// another's: create a lead in your own workspace naming someone else's
+// `customerId`, then read it back, and Prisma's join follows the key and hands
+// you their customer. A to-one `include` accepts no `where`, so that read cannot
+// be filtered at all — there is nowhere to put the condition.
+//
+// So every relation between two tenant-owned models references
+// `(organizationId, id)` instead of `id`, against an `@@unique` on the parent.
+// A cross-tenant reference is then not a bug that has to be caught in
+// application code; it is a row Postgres refuses to store.
+//
+// `prisma validate` and `prisma generate` will print a warning for each of these
+// relations:
+//
+//     The `onDelete` referential action of a relation should not be set to
+//     `SetNull` when a referenced field is required.
+//
+// That warning is expected, and its advice must NOT be followed here. It is
+// right that plain `ON DELETE SET NULL` would break: nulling the whole pair
+// would null `organizationId`, which is NOT NULL, and deleting a customer would
+// fail outright. The migration therefore uses Postgres' column list —
+// `ON DELETE SET NULL ("customerId")` — which clears only the reference and
+// leaves the tenant column alone. Prisma cannot express that, but it also cannot
+// see it: `migrate diff` reports no drift against a database built this way.
+//
+// The consequence to know about: if `prisma migrate dev` ever regenerates one of
+// these constraints it will emit the plain form and quietly break deletes. A
+// check in CI reads `pg_constraint.confdelsetcols` and fails if any of these
+// constraints has lost its column list — see scripts/check-tenant-constraints.mjs.
 
 generator client {
   provider = "prisma-client-js"
@@ -524,6 +558,12 @@ model Customer {
   @@index([organizationId, email])
   @@index([organizationId, phone])
   @@index([organizationId, nextServiceDueAt])
+  /// The target of a composite foreign key. Children reference
+  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
+  /// that points at another business's record — see the note at the top of this
+  /// file. Prisma requires the referenced pair to be unique.
+  @@unique([organizationId, id])
+
   @@map("customers")
 }
 
@@ -536,7 +576,7 @@ model Property {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   customerId String?
-  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customer   Customer? @relation(fields: [organizationId, customerId], references: [organizationId, id], onDelete: SetNull)
 
   label        String?
   addressLine1 String
@@ -575,6 +615,12 @@ model Property {
 
   @@index([organizationId, customerId])
   @@index([organizationId, postalCode])
+  /// The target of a composite foreign key. Children reference
+  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
+  /// that points at another business's record — see the note at the top of this
+  /// file. Prisma requires the referenced pair to be unique.
+  @@unique([organizationId, id])
+
   @@map("properties")
 }
 
@@ -585,9 +631,9 @@ model Lead {
 
   /// Set once a lead is converted; null while it is still just an enquiry.
   customerId String?
-  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customer   Customer? @relation(fields: [organizationId, customerId], references: [organizationId, id], onDelete: SetNull)
   propertyId String?
-  property   Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  property   Property? @relation(fields: [organizationId, propertyId], references: [organizationId, id], onDelete: SetNull)
 
   firstName String
   lastName  String?
@@ -643,6 +689,12 @@ model Lead {
   @@index([organizationId, createdAt])
   @@index([organizationId, nextFollowUpAt])
   @@index([organizationId, aiScore])
+  /// The target of a composite foreign key. Children reference
+  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
+  /// that points at another business's record — see the note at the top of this
+  /// file. Prisma requires the referenced pair to be unique.
+  @@unique([organizationId, id])
+
   @@map("leads")
 }
 
@@ -654,7 +706,7 @@ model LeadActivity {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   leadId String
-  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  lead   Lead   @relation(fields: [organizationId, leadId], references: [organizationId, id], onDelete: Cascade)
 
   /// "status_changed" | "note" | "ai_qualified" | "quote_sent" | "message_sent" …
   type    String
@@ -715,6 +767,12 @@ model Service {
 
   @@unique([organizationId, name])
   @@index([organizationId, active, position])
+  /// The target of a composite foreign key. Children reference
+  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
+  /// that points at another business's record — see the note at the top of this
+  /// file. Prisma requires the referenced pair to be unique.
+  @@unique([organizationId, id])
+
   @@map("services")
 }
 
@@ -728,7 +786,7 @@ model PricingRule {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   serviceId String?
-  service   Service? @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  service   Service? @relation(fields: [organizationId, serviceId], references: [organizationId, id], onDelete: Cascade)
 
   name String
   kind PricingRuleKind
@@ -764,11 +822,11 @@ model Quote {
   number String
 
   customerId String?
-  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customer   Customer? @relation(fields: [organizationId, customerId], references: [organizationId, id], onDelete: SetNull)
   leadId     String?
-  lead       Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  lead       Lead?     @relation(fields: [organizationId, leadId], references: [organizationId, id], onDelete: SetNull)
   propertyId String?
-  property   Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  property   Property? @relation(fields: [organizationId, propertyId], references: [organizationId, id], onDelete: SetNull)
 
   /// The unguessable half of the public URL, /quote/{publicId}. A customer must
   /// be able to open a quote without an account, so the id *is* the credential:
@@ -831,6 +889,12 @@ model Quote {
   @@index([organizationId, status, createdAt])
   @@index([organizationId, expiresAt])
   @@index([organizationId, customerId])
+  /// The target of a composite foreign key. Children reference
+  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
+  /// that points at another business's record — see the note at the top of this
+  /// file. Prisma requires the referenced pair to be unique.
+  @@unique([organizationId, id])
+
   @@map("quotes")
 }
 
@@ -842,10 +906,10 @@ model QuoteItem {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   quoteId String
-  quote   Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quote   Quote  @relation(fields: [organizationId, quoteId], references: [organizationId, id], onDelete: Cascade)
 
   serviceId String?
-  service   Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  service   Service? @relation(fields: [organizationId, serviceId], references: [organizationId, id], onDelete: SetNull)
 
   /// Copied from the service rather than joined, so editing the catalogue does
   /// not silently rewrite quotes that were already sent.
@@ -881,13 +945,13 @@ model Job {
   number String
 
   customerId String
-  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer  @relation(fields: [organizationId, customerId], references: [organizationId, id], onDelete: Cascade)
   propertyId String?
-  property   Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  property   Property? @relation(fields: [organizationId, propertyId], references: [organizationId, id], onDelete: SetNull)
   quoteId    String?
-  quote      Quote?    @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  quote      Quote?    @relation(fields: [organizationId, quoteId], references: [organizationId, id], onDelete: SetNull)
   serviceId  String?
-  service    Service?  @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  service    Service?  @relation(fields: [organizationId, serviceId], references: [organizationId, id], onDelete: SetNull)
 
   assignedUserId String?
   assignedUser   User?   @relation("JobAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
@@ -920,6 +984,12 @@ model Job {
   @@index([organizationId, status, scheduledFor])
   @@index([organizationId, customerId])
   @@index([organizationId, assignedUserId])
+  /// The target of a composite foreign key. Children reference
+  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
+  /// that points at another business's record — see the note at the top of this
+  /// file. Prisma requires the referenced pair to be unique.
+  @@unique([organizationId, id])
+
   @@map("jobs")
 }
 
@@ -929,11 +999,11 @@ model Appointment {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   customerId String?
-  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customer   Customer? @relation(fields: [organizationId, customerId], references: [organizationId, id], onDelete: SetNull)
   jobId      String?
-  job        Job?      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  job        Job?      @relation(fields: [organizationId, jobId], references: [organizationId, id], onDelete: Cascade)
   serviceId  String?
-  service    Service?  @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  service    Service?  @relation(fields: [organizationId, serviceId], references: [organizationId, id], onDelete: SetNull)
 
   title  String
   status AppointmentStatus @default(SCHEDULED)
@@ -981,9 +1051,9 @@ model Conversation {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   customerId String?
-  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customer   Customer? @relation(fields: [organizationId, customerId], references: [organizationId, id], onDelete: SetNull)
   leadId     String?
-  lead       Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  lead       Lead?     @relation(fields: [organizationId, leadId], references: [organizationId, id], onDelete: SetNull)
 
   channel Channel
   /// The phone number or email address on the other end. Together with the
@@ -1004,6 +1074,12 @@ model Conversation {
   @@unique([organizationId, channel, contact])
   @@index([organizationId, lastMessageAt])
   @@index([organizationId, archived, lastMessageAt])
+  /// The target of a composite foreign key. Children reference
+  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
+  /// that points at another business's record — see the note at the top of this
+  /// file. Prisma requires the referenced pair to be unique.
+  @@unique([organizationId, id])
+
   @@map("conversations")
 }
 
@@ -1013,7 +1089,7 @@ model Message {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation   Conversation @relation(fields: [organizationId, conversationId], references: [organizationId, id], onDelete: Cascade)
 
   channel   Channel
   direction MessageDirection
@@ -1074,6 +1150,12 @@ model Automation {
   runs  AutomationRun[]
 
   @@index([organizationId, trigger, enabled])
+  /// The target of a composite foreign key. Children reference
+  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
+  /// that points at another business's record — see the note at the top of this
+  /// file. Prisma requires the referenced pair to be unique.
+  @@unique([organizationId, id])
+
   @@map("automations")
 }
 
@@ -1112,7 +1194,7 @@ model AutomationRun {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   automationId String
-  automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  automation   Automation @relation(fields: [organizationId, automationId], references: [organizationId, id], onDelete: Cascade)
 
   /// What the run is about: "lead" | "quote" | "job" | "customer", plus its id.
   /// A polymorphic pair rather than six nullable foreign keys.
@@ -1147,9 +1229,9 @@ model ReviewRequest {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   customerId String
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer @relation(fields: [organizationId, customerId], references: [organizationId, id], onDelete: Cascade)
   jobId      String?
-  job        Job?     @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  job        Job?     @relation(fields: [organizationId, jobId], references: [organizationId, id], onDelete: SetNull)
 
   channel Channel             @default(SMS)
   status  ReviewRequestStatus @default(PENDING)
@@ -1180,9 +1262,9 @@ model File {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   leadId String?
-  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  lead   Lead?   @relation(fields: [organizationId, leadId], references: [organizationId, id], onDelete: Cascade)
   jobId  String?
-  job    Job?    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  job    Job?    @relation(fields: [organizationId, jobId], references: [organizationId, id], onDelete: Cascade)
 
   kind FileKind @default(OTHER)
 

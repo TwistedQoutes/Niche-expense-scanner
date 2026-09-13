@@ -105,6 +105,16 @@ jobs:
         # order — the thing that otherwise only gets tested in production.
         run: npx prisma migrate deploy
 
+      # Runs against the database the migrations were just applied to. Asserts
+      # every relation between two tenant-owned tables is still a composite
+      # foreign key, that each ON DELETE SET NULL still names only its own
+      # column, and — by attempting one inside a transaction it rolls back — that
+      # Postgres still refuses a cross-tenant reference. A `prisma migrate dev`
+      # that regenerates one of these constraints drops the column list and
+      # breaks deletes without failing anything else in the toolchain.
+      - name: Check the tenant boundary is still enforced
+        run: npm run db:check-constraints
+
       - name: Typecheck
         run: npm run typecheck
 

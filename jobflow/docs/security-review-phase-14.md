@@ -121,10 +121,28 @@ A test asserts every module that can write one of these keys mentions
 `assertOwned`, so a new repository function that takes a `customerId` from a body
 and forgets the check fails the suite.
 
-**Deeper defence not taken.** Composite foreign keys on `(organizationId, id)`
-would make a cross-tenant reference impossible at the database rather than by
-convention. That is a schema change touching every relation in 24 models; the
-write-side check closes the hole, and the constraint is the belt to its braces.
+**Defence in depth, since added.** All 25 relations between tenant-owned models
+now reference `(organizationId, id)` against a composite unique on the parent, so
+a cross-tenant reference is a row Postgres refuses rather than one the
+application has to remember to reject. `assertOwned` still runs first, because it
+turns the same mistake into a clean 404 instead of a foreign-key error — but it
+is no longer the only thing standing there.
+
+Two things about that migration are worth knowing, both verified by running them:
+
+* Prisma emits `ON DELETE SET NULL` across the whole key, which nulls
+  `organizationId` too. Since that column is NOT NULL, deleting a customer fails
+  outright — proved in Postgres before shipping it. The migration uses Postgres'
+  column list (`ON DELETE SET NULL ("customerId")`), which clears only the
+  reference; `prisma migrate diff` reports no drift against it. `prisma validate`
+  warns about this on all 15 such relations, and that warning's advice must not be
+  followed here; the note at the top of `schema.prisma` says why.
+* A future `prisma migrate dev` that regenerates one of these constraints would
+  drop the column list and silently break deletes, and nothing else in the
+  toolchain notices. `npm run db:check-constraints` reads
+  `pg_constraint.confdelsetcols` and also attempts one cross-tenant write inside a
+  rolled-back transaction; CI runs it right after the migrations. Both halves were
+  confirmed to fail against a deliberately sabotaged database.
 
 ---
 

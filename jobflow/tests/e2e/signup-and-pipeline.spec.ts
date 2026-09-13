@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { expectNoServerError, signUp } from './support';
+import { addLead, expectNoServerError, signUp } from './support';
 
 /**
  * The path a new customer actually takes on their first morning: sign up, add the
@@ -11,13 +11,7 @@ import { expectNoServerError, signUp } from './support';
 test('a new owner can sign up, add a lead, and see it on the board', async ({ page }) => {
   await signUp(page, 'pipeline');
 
-  await page.goto('/leads/new');
-  await page.getByLabel('First name').fill('Renee');
-  await page.getByLabel('Last name').fill('Alvarez');
-  await page.getByLabel('Phone').fill('+15125550142');
-  await page.getByRole('button', { name: /add|save|create/i }).first().click();
-
-  await page.waitForURL(/\/leads/, { timeout: 30_000 });
+  await addLead(page, { firstName: 'Renee', lastName: 'Alvarez', phone: '+15125550142' });
 
   await page.goto('/leads');
   // By role, not by text: the card also carries screen-reader-only text naming
@@ -31,11 +25,7 @@ test('the board offers a way to move a card without dragging', async ({ page }) 
   // truck. The select is the real interaction there, not a degraded fallback.
   await signUp(page, 'touch');
 
-  await page.goto('/leads/new');
-  await page.getByLabel('First name').fill('Owen');
-  await page.getByLabel('Phone').fill('+15125550143');
-  await page.getByRole('button', { name: /add|save|create/i }).first().click();
-  await page.waitForURL(/\/leads/, { timeout: 30_000 });
+  await addLead(page, { firstName: 'Owen', phone: '+15125550143' });
 
   await page.goto('/leads');
   await expect(page.locator('select').first()).toBeVisible();
