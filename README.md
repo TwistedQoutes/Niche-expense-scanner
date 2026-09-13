@@ -1472,6 +1472,10 @@ to round-trip every hour across the two days a year the arithmetic is hard.
 
 ## Deployment (Vercel)
 
+**[DEPLOYMENT.md](DEPLOYMENT.md) is the full going-live checklist** — every
+account to create, what each integration turns on, what breaks without it, and a
+smoke test to run afterwards. What follows is the short version.
+
 1. Push the repository.
 2. Import the project in Vercel. The app is the repository root, so the default
    Root Directory is correct — leave it alone. (It lived in a `jobflow/`
@@ -1483,9 +1487,16 @@ to round-trip every hour across the two days a year the arithmetic is hard.
      resets are absolute URLs built from it, and a background job has no request
      to infer a host from.
 4. Deploy. The build runs `prisma generate && next build` and needs no database.
-5. Apply migrations against production:
+5. Apply migrations against production, using the **direct** connection. A
+   transaction pooler cannot carry the advisory locks and DDL a migration needs,
+   and fails without saying so; `prisma.config.ts` uses `DIRECT_URL` when it is
+   set, precisely so this is not a thing you have to remember:
    ```bash
-   DATABASE_URL="<direct, unpooled url>" npm run db:migrate:deploy
+   DIRECT_URL="<direct, unpooled url>" npm run db:migrate:deploy
+   ```
+   Then confirm the tenant boundary survived the migration:
+   ```bash
+   DATABASE_URL="<direct, unpooled url>" npm run db:check-constraints
    ```
 6. Add the Stripe webhook endpoint at `https://yourdomain.com/api/stripe/webhook`,
    subscribed to `checkout.session.completed`, `customer.subscription.*`,
