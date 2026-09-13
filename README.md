@@ -18,7 +18,7 @@ LEAD → AI QUALIFICATION → CUSTOMER → PROPERTY → ESTIMATE → QUOTE
 
 ## Where this is up to
 
-The build is phased. **Phases 1–13 are complete and verified**: project setup,
+The build is phased. **Phases 1–14 are complete and verified**: project setup,
 the full database schema, multi-tenancy, authentication, the dashboard shell,
 the lead pipeline and CRM, the services catalogue and pricing engine,
 professional quotes a customer can accept without an account, AI lead
@@ -47,11 +47,35 @@ that cannot touch the real world.
 | 11 | Stripe billing, subscriptions, usage limits | ✅ Done |
 | 12 | Analytics, admin dashboard | ✅ Done |
 | 13 | Landing page, onboarding, demo mode | ✅ Done |
-| 14 | Testing, security, performance, deployment | Next — ongoing throughout |
+| 14 | Testing, security, performance, deployment | ✅ Done |
 
 The navigation in `src/components/layout/navigation.ts` is the whole product map,
 with a `built` flag per entry. Unbuilt screens are hidden rather than shown as
 dead links, and each phase flips its entries on as it lands.
+
+### What is not built
+
+Named here rather than left to be discovered, because each one has a shape in the
+database or the environment that makes it look present:
+
+- **Teammates cannot be invited.** `Membership` carries roles and
+  `invitedAt`/`acceptedAt`, and role checks are enforced throughout — but nothing
+  creates a membership except signup, so a workspace is one person in practice.
+  The "assign to" selector on a job is therefore always a list of one. (It is also
+  where a cross-tenant leak was found and fixed; see
+  `docs/security-review-phase-14.md`.)
+- **No file uploads.** The `File` model exists, scoped to a lead or a job, and
+  nothing writes to it. Before-and-after job photos need a storage driver and an
+  upload route.
+- **Google Maps is not wired.** Both keys are in `.env.example` and nothing reads
+  them. Address autocomplete, geocoding and drive-time estimates are unimplemented,
+  so travel distance on a quote is whatever the owner types.
+
+Two more, smaller: the end-to-end suite covers signup, the pipeline, tenant
+isolation and quote acceptance, but not billing, the automation worker or the
+missed-call path — those have unit tests only. And `loadSpeed` and `monthlySeries`
+still aggregate in JavaScript what Postgres could aggregate in SQL; the reasoning
+for leaving that alone is in `docs/performance-phase-14.md`.
 
 ---
 

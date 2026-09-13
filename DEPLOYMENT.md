@@ -216,10 +216,12 @@ unbilled deployment behaves as whatever plan you set on each workspace.
 AI_DRIVER="openai"
 OPENAI_API_KEY="sk-…"
 
-# Address autocomplete and drive-time estimates. TWO keys, deliberately: the
-# browser key is visible in page source and should be restricted to your domain
-# with only Maps JavaScript enabled; the server key does geocoding, must never
-# reach the browser, and should be restricted by IP.
+# Nothing reads these yet. Address autocomplete and drive-time estimates are in
+# the plan and not built, so setting them turns nothing on — they are listed here
+# only so the two-key split is decided before the feature arrives: the browser key
+# would be visible in page source and restricted to your domain, the server key
+# would do geocoding, never reach the browser, and be restricted by IP.
+# Leave them unset.
 GOOGLE_MAPS_API_KEY=""
 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=""
 
