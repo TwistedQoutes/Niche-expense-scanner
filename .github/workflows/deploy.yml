@@ -1,0 +1,87 @@
+name: Deploy
+
+# Started by hand, never by a push.
+#
+# A deploy that happens because somebody merged something is a deploy nobody
+# decided on, and this one writes to a production database. So it waits to be
+# asked — from the Actions tab, or by anything holding the repository's own
+# credentials.
+#
+# It exists because the work needs three things at once: a shell, this
+# repository, and network access to Neon and Vercel. A runner has all three; a
+# tablet has none of them, and a sandboxed agent has the first two.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: What to run
+        type: choice
+        default: database-only
+        options:
+          # Migrations and the tenant-boundary check. Nothing is deployed, and
+          # nothing about Vercel is touched — the sensible first run.
+          - database-only
+          # The same, then set the production environment variables and deploy.
+          - database-and-deploy
+
+permissions:
+  contents: read
+
+concurrency:
+  # Two migrations racing on one database is a way to find out what a half
+  # applied schema looks like.
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: ${{ inputs.mode }}
+    runs-on: ubuntu-latest
+
+    env:
+      # Set these under Settings → Secrets and variables → Actions. Secrets are
+      # masked in the log, and scripts/deploy.sh reads them from the environment
+      # rather than taking them as arguments.
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: ${{ secrets.VERCEL_SCOPE }}
+      NEXT_TELEMETRY_DISABLED: '1'
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Say what is missing, before doing half the job
+        run: |
+          missing=""
+          [ -n "$DATABASE_URL" ] || missing="$missing DATABASE_URL"
+          [ -n "$DIRECT_URL" ]   || missing="$missing DIRECT_URL"
+          if [ "${{ inputs.mode }}" = "database-and-deploy" ] && [ -z "$VERCEL_TOKEN" ]; then
+            missing="$missing VERCEL_TOKEN"
+          fi
+
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing — add them under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # One script, the same one a developer runs on a laptop, so there is no
+      # second implementation of the deploy to drift from the first.
+      - name: Migrate, check the tenant boundary, and deploy
+        run: |
+          if [ "${{ inputs.mode }}" = "database-only" ]; then
+            ./scripts/deploy.sh --database-only
+          else
+            ./scripts/deploy.sh
+          fi
