@@ -100,6 +100,12 @@ domain, and it skips that second pass. Re-running is safe.
 `--database-only` stops after the migrations, which is what you want when you are
 bringing a database up to date rather than shipping.
 
+With `VERCEL_TOKEN` set in the environment (and `VERCEL_SCOPE` for a team
+account) it runs with nobody at the keyboard — no prompts — which is what CI, or
+an agent running the deploy for you, needs. Set it as an environment variable
+rather than passing it as an argument: an argument is visible in `ps` and lands
+in your shell history.
+
 The rest of this document is the same work done by hand, and is what to read when
 a step fails.
 

@@ -14,6 +14,9 @@
 #     --direct-url   "postgresql://…direct…"  \
 #     [--app-url https://yourdomain.com]
 #
+# Set VERCEL_TOKEN in the environment and it runs unattended — no prompts, which
+# is what CI and an agent session need.
+#
 # What it does, in order, stopping at the first thing that is wrong:
 #
 #   1. Applies every migration, against the DIRECT url — a transaction pooler
@@ -100,11 +103,27 @@ CRON_SECRET_VALUE="${CRON_SECRET:-$(openssl rand -hex 32)}"
 
 command -v npx >/dev/null || fail "npx is required."
 
-vercel() { npx --yes vercel@latest "$@"; }
+# `VERCEL_TOKEN` (and `VERCEL_SCOPE`, for a team account) are what make this
+# runnable with nobody at the keyboard — from CI, or from an agent session. Set
+# them as environment variables rather than passing them as arguments: an
+# argument is visible in `ps` and lands in shell history.
+#
+# The flags go after the subcommand, which every Vercel subcommand accepts.
+vercel() {
+  local extra=()
+  [ -n "${VERCEL_TOKEN:-}" ] && extra+=(--token "$VERCEL_TOKEN")
+  [ -n "${VERCEL_SCOPE:-}" ] && extra+=(--scope "$VERCEL_SCOPE")
+  npx --yes vercel@latest "$@" "${extra[@]+"${extra[@]}"}"
+}
 
 say "Linking this directory to a Vercel project"
-# Interactive the first time; a no-op once .vercel/project.json exists.
-vercel link
+# Interactive the first time; a no-op once .vercel/project.json exists. With a
+# token there is nobody to answer the questions, so it takes the defaults.
+if [ -n "${VERCEL_TOKEN:-}" ]; then
+  vercel link --yes
+else
+  vercel link
+fi
 
 # Replace rather than add: `vercel env add` refuses a name that already exists,
 # so a second run of this script would otherwise stop here.
