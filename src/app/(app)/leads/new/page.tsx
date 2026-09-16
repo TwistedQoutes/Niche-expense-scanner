@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { NewLeadForm } from '@/components/leads/NewLeadForm';
 import { requireAuth } from '@/lib/auth/context';
+import { mapsEnabled } from '@/lib/maps/client';
 
 export const metadata: Metadata = { title: 'New lead' };
 export const dynamic = 'force-dynamic';
@@ -26,7 +27,7 @@ export default async function NewLeadPage() {
       </div>
 
       <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200/80 lg:p-6 dark:bg-slate-900 dark:ring-slate-800">
-        <NewLeadForm />
+        <NewLeadForm mapsEnabled={mapsEnabled()} />
       </div>
     </div>
   );

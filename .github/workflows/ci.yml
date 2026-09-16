@@ -165,6 +165,11 @@ jobs:
       # phone numbers, and the review and quote flows are built to text people.
       SMS_DRIVER: none
       EMAIL_DRIVER: none
+      # A placeholder, NOT a secret. Its only job is to make the app render the
+      # address field as a combobox; the autocomplete spec intercepts the app's
+      # own lookup endpoint in the browser, so Google is never called and this
+      # value is never sent anywhere.
+      GOOGLE_MAPS_API_KEY: ci-placeholder-value-not-a-real-credential
 
     steps:
       - name: Check out the repository

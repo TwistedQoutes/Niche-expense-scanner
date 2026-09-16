@@ -216,14 +216,12 @@ unbilled deployment behaves as whatever plan you set on each workspace.
 AI_DRIVER="openai"
 OPENAI_API_KEY="sk-…"
 
-# Nothing reads these yet. Address autocomplete and drive-time estimates are in
-# the plan and not built, so setting them turns nothing on — they are listed here
-# only so the two-key split is decided before the feature arrives: the browser key
-# would be visible in page source and restricted to your domain, the server key
-# would do geocoding, never reach the browser, and be restricted by IP.
-# Leave them unset.
+# Address suggestions as you type, and road distance for the travel line on a
+# quote. Enable Geocoding API, Distance Matrix API and Places API, then restrict
+# the key by IP. One key, never sent to the browser: the page asks our own
+# /api/maps/autocomplete, which needs a session and is rate-limited per
+# workspace. Unset, addresses are typed in full and mileage by hand.
 GOOGLE_MAPS_API_KEY=""
-NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=""
 
 # Days of full Pro access before a card is required. 0 disables the trial.
 TRIAL_DAYS="14"

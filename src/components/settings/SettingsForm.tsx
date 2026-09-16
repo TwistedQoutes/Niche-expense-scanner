@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { AddressAutocomplete } from '@/components/maps/AddressAutocomplete';
 import { Alert } from '@/components/ui/Alert';
 import { Button } from '@/components/ui/Button';
 import { SelectField, TextField } from '@/components/ui/Field';
@@ -58,9 +59,12 @@ export type SettingsValues = {
 export function SettingsForm({
   initial,
   canEdit,
+  mapsEnabled = false,
 }: {
   initial: SettingsValues;
   canEdit: boolean;
+  /** Whether this deployment can suggest addresses. */
+  mapsEnabled?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -168,12 +172,23 @@ export function SettingsForm({
         <h2 className="text-sm font-medium text-slate-900 dark:text-slate-100">Where you work</h2>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <TextField
+          <AddressAutocomplete
             label="Address"
-            value={values.addressLine1}
+            // Read-only members see the address; they do not get to look up a
+            // new one, which would spend the workspace's Maps quota.
+            enabled={mapsEnabled && canEdit}
             disabled={!canEdit}
+            value={values.addressLine1}
             error={fieldErrors.addressLine1}
-            onChange={(event) => set('addressLine1', event.target.value)}
+            onChange={(value) => set('addressLine1', value)}
+            onResolved={(address) => {
+              // Through `set`, not straight into state: it is also what clears
+              // the "this field is wrong" message the server last sent.
+              if (address.addressLine1) set('addressLine1', address.addressLine1);
+              if (address.city) set('city', address.city);
+              if (address.state) set('state', address.state);
+              if (address.postalCode) set('postalCode', address.postalCode);
+            }}
           />
           <TextField
             label="Town or city"

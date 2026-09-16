@@ -251,8 +251,6 @@ export type PublicConfig = {
   supportEmail: string;
   appUrl: string;
   trialDays: number;
-  /** Browser-safe Maps key. Referrer-restricted in the Google console. */
-  googleMapsBrowserKey: string | null;
   stripePublishableKey: string | null;
   /** Whether the landing page should offer a demo. */
   demoMode: boolean;
@@ -265,7 +263,6 @@ export function getPublicConfig(): PublicConfig {
     supportEmail: process.env.SUPPORT_EMAIL || 'support@jobflow.ai',
     appUrl: process.env.APP_URL || 'http://localhost:3000',
     trialDays: Number.isFinite(trialDays) && trialDays >= 0 ? trialDays : 14,
-    googleMapsBrowserKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || null,
     stripePublishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || null,
     // Read from the raw variable rather than through getEnv(), because the
     // landing page is statically rendered and must not pull in the server schema.

@@ -55,18 +55,12 @@ dead links, and each phase flips its entries on as it lands.
 
 ### What is not built
 
-Named here rather than left to be discovered, because each one has a shape in the
-database or the environment that makes it look present:
-
-- **No address autocomplete in the browser.** Geocoding and drive distance are
-  wired server-side (see "Maps" below), but the address fields are still plain
-  text inputs — Places Autocomplete would need the browser key and a script tag.
-
-Two more, smaller: the end-to-end suite covers signup, the pipeline, tenant
-isolation, quote acceptance and team invites, but not billing, the automation
-worker or the missed-call path — those have unit tests only. And `loadSpeed` and `monthlySeries`
-still aggregate in JavaScript what Postgres could aggregate in SQL; the reasoning
-for leaving that alone is in `docs/performance-phase-14.md`.
+Named here rather than left to be discovered: the end-to-end suite covers signup,
+the pipeline, tenant isolation, quote acceptance, team invites and address
+autocomplete, but not billing, the automation worker or the missed-call path —
+those have unit tests only. And `loadSpeed` and `monthlySeries` still aggregate in
+JavaScript what Postgres could aggregate in SQL; the reasoning for leaving that
+alone is in `docs/performance-phase-14.md`.
 
 ---
 
@@ -965,6 +959,24 @@ sets either — an area on a property was measured by a person, or it is not the
 
 ### What it does instead
 
+**Address suggestions.** The property address field on a new lead, and the
+business address in Settings, suggest as you type: pick one and the city, state
+and ZIP underneath fill themselves in. Those are the three fields that get
+mistyped, and a wrong ZIP is a crew at the wrong end of town.
+
+It is proxied, not embedded. The usual approach loads Google's Places library in
+the page with a `NEXT_PUBLIC_` key, which publishes a key anyone can lift and
+spend. Here the browser posts to `/api/maps/autocomplete`, which requires a
+session and is rate-limited per workspace before it calls Google — so the key
+stays on the server, no third-party script runs on a page showing customer
+records, and there is something between a stuck key and a bill. Suggestions and
+the final lookup share a Google session token, so an address costs one session
+rather than one charge per keystroke; typing is debounced for the same reason.
+
+The field is a real combobox — arrow keys, Enter, Escape, announced options —
+and without a Maps key it is an ordinary text input that behaves exactly as it
+did before. Nothing about the form depends on the lookup working.
+
 **Geocoding.** Converting a won lead turns its address into coordinates and a
 place id, stored on the property. That is the one moment the address is known and
 somebody is already waiting. A failure returns null and the property saves without
@@ -1278,14 +1290,28 @@ assistant is constrained: it will not quote a price that is not in your
 configured pricing, promise availability without checking the calendar, or
 invent a business policy.
 
-### Google Maps (property analysis)
+### Google Maps (addresses and drive distance)
 
-Enable **Maps JavaScript API** and **Geocoding API**, then create **two**
-restricted keys:
+Enable **Geocoding API**, **Distance Matrix API** and **Places API**, then create
+**one** key, restricted by IP:
 
-- `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` — browser. Visible in page source, so
-  restrict it by HTTP referrer and give it only the Maps JavaScript API.
-- `GOOGLE_MAPS_API_KEY` — server, for geocoding. Restrict by IP. Never exposed.
+```bash
+GOOGLE_MAPS_API_KEY="…"
+```
+
+One key, and it is a server key. The usual way to do address autocomplete is to
+load Google's Places library in the page with a `NEXT_PUBLIC_` key, which means
+publishing a key that anyone can lift from page source and spend — HTTP referrer
+restrictions are a speed bump, not a lock. Instead the browser asks
+`/api/maps/autocomplete`, which requires a session, is rate-limited per
+workspace, and calls Google from the server. Nothing about Maps reaches the
+browser, and no third-party script runs on a page showing customer records.
+
+Suggestions and the final lookup share a Google session token, so typing an
+address is billed as one session rather than one charge per keystroke.
+
+Unset the key and everything still works: the address field becomes an ordinary
+text input and the drive-distance button is hidden.
 
 On measurement, honestly: satellite imagery does not give an exact lawn area.
 `Property.measurementSource` records where a number came from, and anything not

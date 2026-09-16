@@ -130,6 +130,262 @@ describe('with a key configured', () => {
   });
 });
 
+const OK_AUTOCOMPLETE = {
+  status: 'OK',
+  predictions: [
+    {
+      place_id: 'ChIJOne',
+      description: '12 Oak Lane, Austin, TX, USA',
+      structured_formatting: { main_text: '12 Oak Lane', secondary_text: 'Austin, TX, USA' },
+    },
+    {
+      place_id: 'ChIJTwo',
+      description: '12 Oak Street, Austin, TX, USA',
+      structured_formatting: { main_text: '12 Oak Street', secondary_text: 'Austin, TX, USA' },
+    },
+  ],
+};
+
+const OK_DETAILS = {
+  status: 'OK',
+  result: {
+    place_id: 'ChIJOne',
+    address_components: [
+      { types: ['street_number'], long_name: '12', short_name: '12' },
+      { types: ['route'], long_name: 'Oak Lane', short_name: 'Oak Ln' },
+      { types: ['locality', 'political'], long_name: 'Austin', short_name: 'Austin' },
+      {
+        types: ['administrative_area_level_1', 'political'],
+        long_name: 'Texas',
+        short_name: 'TX',
+      },
+      { types: ['postal_code'], long_name: '78701', short_name: '78701' },
+      { types: ['country', 'political'], long_name: 'United States', short_name: 'US' },
+    ],
+    geometry: { location: { lat: 30.2672, lng: -97.7431 } },
+  },
+};
+
+/**
+ * Address suggestions, and the two things that are easy to get wrong about them.
+ *
+ * The first is cost. Autocomplete is billed per request unless every keystroke
+ * and the final lookup carry one session token, and Place Details is billed by
+ * the field groups asked for. Both are asserted below, because neither is
+ * visible in the product: get them wrong and everything works, and the bill
+ * arrives at the end of the month.
+ *
+ * The second is the shape of an address. The form stores city, state and postcode
+ * separately, so what comes back has to be the structured components rather than
+ * a display string split on commas.
+ */
+describe('address suggestions', () => {
+  beforeEach(() => {
+    vi.stubEnv('GOOGLE_MAPS_API_KEY', 'test-key-not-a-real-one');
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it('splits each suggestion into the line and the rest', async () => {
+    vi.stubGlobal('fetch', mockFetch(OK_AUTOCOMPLETE));
+    const { autocompleteAddress } = await import('@/lib/maps/client');
+
+    await expect(autocompleteAddress('12 Oak', 'session-token-aaa')).resolves.toEqual([
+      {
+        placeId: 'ChIJOne',
+        description: '12 Oak Lane, Austin, TX, USA',
+        main: '12 Oak Lane',
+        secondary: 'Austin, TX, USA',
+      },
+      {
+        placeId: 'ChIJTwo',
+        description: '12 Oak Street, Austin, TX, USA',
+        main: '12 Oak Street',
+        secondary: 'Austin, TX, USA',
+      },
+    ]);
+  });
+
+  it('falls back to the description when Google sends no structured text', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetch({
+        status: 'OK',
+        predictions: [{ place_id: 'ChIJBare', description: 'Rural Route 3, Bastrop County, TX' }],
+      }),
+    );
+    const { autocompleteAddress } = await import('@/lib/maps/client');
+
+    const [only] = await autocompleteAddress('Rural Route', 'session-token-aaa');
+    expect(only?.main).toBe('Rural Route 3, Bastrop County, TX');
+    expect(only?.secondary).toBe('');
+  });
+
+  it('drops a prediction with no place id, which could not be resolved anyway', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetch({
+        status: 'OK',
+        predictions: [{ description: 'Somewhere' }, { place_id: 'ChIJReal', description: 'Real' }],
+      }),
+    );
+    const { autocompleteAddress } = await import('@/lib/maps/client');
+
+    const results = await autocompleteAddress('some', 'session-token-aaa');
+    expect(results.map((result) => result.placeId)).toEqual(['ChIJReal']);
+  });
+
+  it('shows at most five, because the list covers the field on a phone', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetch({
+        status: 'OK',
+        predictions: Array.from({ length: 12 }, (_value, index) => ({
+          place_id: `ChIJ${index}`,
+          description: `${index} Oak Lane`,
+        })),
+      }),
+    );
+    const { autocompleteAddress } = await import('@/lib/maps/client');
+
+    await expect(autocompleteAddress('Oak', 'session-token-aaa')).resolves.toHaveLength(5);
+  });
+
+  it('carries the session token, so a typed address is billed once', async () => {
+    // Not a detail: without a shared token Google bills every keystroke as its
+    // own request, and the same address costs ten times as much to enter.
+    const fetchMock = mockFetch(OK_AUTOCOMPLETE);
+    vi.stubGlobal('fetch', fetchMock);
+    const { autocompleteAddress } = await import('@/lib/maps/client');
+
+    await autocompleteAddress('12 Oak', 'session-token-aaa', { country: 'us' });
+
+    const url = new URL(String(fetchMock.mock.calls[0]![0]));
+    expect(url.searchParams.get('sessiontoken')).toBe('session-token-aaa');
+    expect(url.searchParams.get('types')).toBe('address');
+    expect(url.searchParams.get('components')).toBe('country:us');
+  });
+
+  it.each(['ZERO_RESULTS', 'OVER_QUERY_LIMIT', 'REQUEST_DENIED', 'INVALID_REQUEST'])(
+    'returns nothing on %s rather than an error somebody is typing into',
+    async (status) => {
+      vi.stubGlobal('fetch', mockFetch({ status, predictions: [] }));
+      const { autocompleteAddress } = await import('@/lib/maps/client');
+
+      await expect(autocompleteAddress('12 Oak', 'session-token-aaa')).resolves.toEqual([]);
+    },
+  );
+
+  it('does not spend a request on two characters', async () => {
+    const fetchMock = mockFetch(OK_AUTOCOMPLETE);
+    vi.stubGlobal('fetch', fetchMock);
+    const { autocompleteAddress } = await import('@/lib/maps/client');
+
+    await expect(autocompleteAddress(' 12 ', 'session-token-aaa')).resolves.toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns nothing when the transport fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
+    const { autocompleteAddress } = await import('@/lib/maps/client');
+
+    await expect(autocompleteAddress('12 Oak', 'session-token-aaa')).resolves.toEqual([]);
+  });
+});
+
+describe('resolving a chosen suggestion', () => {
+  beforeEach(() => {
+    vi.stubEnv('GOOGLE_MAPS_API_KEY', 'test-key-not-a-real-one');
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it('returns the components the form stores, not a display string', async () => {
+    vi.stubGlobal('fetch', mockFetch(OK_DETAILS));
+    const { placeDetails } = await import('@/lib/maps/client');
+
+    await expect(placeDetails('ChIJOne', 'session-token-aaa')).resolves.toEqual({
+      addressLine1: '12 Oak Lane',
+      city: 'Austin',
+      // Short form: an invoice says TX, not Texas.
+      state: 'TX',
+      postalCode: '78701',
+      country: 'US',
+      latitude: 30.2672,
+      longitude: -97.7431,
+      placeId: 'ChIJOne',
+    });
+  });
+
+  it('finds the town when it is reported as a postal town', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetch({
+        status: 'OK',
+        result: {
+          place_id: 'ChIJUk',
+          address_components: [
+            { types: ['street_number'], long_name: '221B' },
+            { types: ['route'], long_name: 'Baker Street' },
+            { types: ['postal_town'], long_name: 'London' },
+            { types: ['country'], long_name: 'United Kingdom', short_name: 'GB' },
+          ],
+        },
+      }),
+    );
+    const { placeDetails } = await import('@/lib/maps/client');
+
+    const place = await placeDetails('ChIJUk', 'session-token-aaa');
+    expect(place?.city).toBe('London');
+    expect(place?.country).toBe('GB');
+    // No geometry in the payload: coordinates absent, not zero. A lat/lng of
+    // 0,0 is in the Gulf of Guinea and would price a drive there.
+    expect(place?.latitude).toBeNull();
+    expect(place?.longitude).toBeNull();
+  });
+
+  it('asks for the same session and only the fields it uses', async () => {
+    // Place Details is billed by field group. Asking for everything would pay
+    // for opening hours and photographs on an address lookup.
+    const fetchMock = mockFetch(OK_DETAILS);
+    vi.stubGlobal('fetch', fetchMock);
+    const { placeDetails } = await import('@/lib/maps/client');
+
+    await placeDetails('ChIJOne', 'session-token-aaa');
+
+    const url = new URL(String(fetchMock.mock.calls[0]![0]));
+    expect(url.searchParams.get('sessiontoken')).toBe('session-token-aaa');
+    expect(url.searchParams.get('fields')).toBe('address_component,geometry,place_id');
+  });
+
+  it.each(['ZERO_RESULTS', 'NOT_FOUND', 'REQUEST_DENIED'])(
+    'returns null on %s so the form keeps what was typed',
+    async (status) => {
+      vi.stubGlobal('fetch', mockFetch({ status }));
+      const { placeDetails } = await import('@/lib/maps/client');
+
+      await expect(placeDetails('ChIJOne', 'session-token-aaa')).resolves.toBeNull();
+    },
+  );
+
+  it('does not call out for an empty place id', async () => {
+    const fetchMock = mockFetch(OK_DETAILS);
+    vi.stubGlobal('fetch', fetchMock);
+    const { placeDetails } = await import('@/lib/maps/client');
+
+    await expect(placeDetails('   ', 'session-token-aaa')).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('with no key configured', () => {
   beforeEach(() => {
     vi.stubEnv('GOOGLE_MAPS_API_KEY', '');
@@ -144,6 +400,15 @@ describe('with no key configured', () => {
   it('reports itself as unavailable rather than pretending', async () => {
     const { mapsEnabled } = await import('@/lib/maps/client');
     expect(mapsEnabled()).toBe(false);
+  });
+
+  it('suggests nothing, rather than failing the keystroke', async () => {
+    const fetchMock = mockFetch(OK_AUTOCOMPLETE);
+    vi.stubGlobal('fetch', fetchMock);
+    const { autocompleteAddress } = await import('@/lib/maps/client');
+
+    await expect(autocompleteAddress('12 Oak', 'session-token-aaa')).resolves.toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('returns null instead of throwing into a lead conversion', async () => {

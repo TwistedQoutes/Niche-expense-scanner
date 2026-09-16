@@ -176,3 +176,155 @@ export function formatAddress(parts: {
     .filter((part): part is string => Boolean(part))
     .join(', ');
 }
+
+export type AddressSuggestion = {
+  /** Google's opaque id, passed back to `placeDetails` to resolve the address. */
+  placeId: string;
+  /** What to show in the list: "12 Oak Lane, Austin, TX, USA". */
+  description: string;
+  /** The first line, bolded in Google's own UI. Shown as the primary text. */
+  main: string;
+  /** The rest — town, state, country. Shown underneath, smaller. */
+  secondary: string;
+};
+
+/**
+ * Address suggestions as somebody types, proxied rather than called from the page.
+ *
+ * The obvious implementation loads Google's Places JavaScript library in the
+ * browser with a `NEXT_PUBLIC_` key. This does not, for the reason the rest of
+ * this module does not: a Maps key in page source is a key anyone can spend, and
+ * referrer restrictions are a speed bump rather than a lock. Going through the
+ * server keeps one key, restricted by IP, never shipped — and it puts the
+ * per-organization rate limit in front of a billed endpoint that fires on
+ * keystrokes, which is the part that would otherwise be somebody else's invoice.
+ *
+ * It also means no third-party script in the page at all, which is worth more
+ * than it sounds on a page that renders customer data.
+ *
+ * `sessionToken` is not decoration. Google bills autocomplete per request unless
+ * the requests and the final `placeDetails` call share a session token, in which
+ * case the whole session is billed once. Typing an address is a dozen requests;
+ * without this it is a dozen charges.
+ */
+export async function autocompleteAddress(
+  input: string,
+  sessionToken: string,
+  options: { country?: string } = {},
+): Promise<AddressSuggestion[]> {
+  const trimmed = input.trim();
+  // Two characters cannot identify an address and would return noise at full
+  // price, so the floor is here as well as in the component.
+  if (trimmed.length < 3) return [];
+
+  try {
+    const payload = (await callMaps('place/autocomplete/json', {
+      input: trimmed,
+      sessiontoken: sessionToken,
+      types: 'address',
+      ...(options.country ? { components: `country:${options.country}` } : {}),
+    })) as {
+      status?: string;
+      predictions?: {
+        place_id?: string;
+        description?: string;
+        structured_formatting?: { main_text?: string; secondary_text?: string };
+      }[];
+    };
+
+    // ZERO_RESULTS is an answer. Everything else that is not OK is a failure, and
+    // both mean the same thing to a person typing: no suggestions, carry on.
+    if (payload.status !== 'OK') return [];
+
+    return (payload.predictions ?? [])
+      .filter((prediction) => prediction.place_id && prediction.description)
+      .slice(0, 5)
+      .map((prediction) => ({
+        placeId: prediction.place_id!,
+        description: prediction.description!,
+        main: prediction.structured_formatting?.main_text ?? prediction.description!,
+        secondary: prediction.structured_formatting?.secondary_text ?? '',
+      }));
+  } catch {
+    return [];
+  }
+}
+
+export type ResolvedPlace = {
+  addressLine1: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  latitude: number | null;
+  longitude: number | null;
+  placeId: string;
+};
+
+/** Pulls one component out of Google's array by type. */
+function component(
+  components: { types?: string[]; long_name?: string; short_name?: string }[],
+  type: string,
+  form: 'long' | 'short' = 'long',
+): string {
+  const found = components.find((candidate) => candidate.types?.includes(type));
+  return (form === 'short' ? found?.short_name : found?.long_name) ?? '';
+}
+
+/**
+ * Turns a chosen suggestion into the fields the form actually stores.
+ *
+ * The structured components, not the one-line description: a form with separate
+ * city, state and postcode inputs needs them separated, and splitting a display
+ * string on commas is how an address in a country that orders them differently
+ * ends up with the town in the postcode box.
+ */
+export async function placeDetails(
+  placeId: string,
+  sessionToken: string,
+): Promise<ResolvedPlace | null> {
+  if (!placeId.trim()) return null;
+
+  try {
+    const payload = (await callMaps('place/details/json', {
+      place_id: placeId,
+      sessiontoken: sessionToken,
+      // Asked for by name: Google bills Place Details by the field groups
+      // requested, so taking everything would cost more for data nothing uses.
+      fields: 'address_component,geometry,place_id',
+    })) as {
+      status?: string;
+      result?: {
+        place_id?: string;
+        address_components?: { types?: string[]; long_name?: string; short_name?: string }[];
+        geometry?: { location?: { lat?: number; lng?: number } };
+      };
+    };
+
+    if (payload.status !== 'OK' || !payload.result) return null;
+
+    const components = payload.result.address_components ?? [];
+    const streetNumber = component(components, 'street_number');
+    const route = component(components, 'route');
+    const location = payload.result.geometry?.location;
+
+    return {
+      addressLine1: [streetNumber, route].filter(Boolean).join(' '),
+      // `locality` is the town in most places; `postal_town` is what the UK uses
+      // and `sublocality` catches the cities that report neither.
+      city:
+        component(components, 'locality') ||
+        component(components, 'postal_town') ||
+        component(components, 'sublocality'),
+      // Short form: forms and invoices want "TX", not "Texas".
+      state: component(components, 'administrative_area_level_1', 'short'),
+      postalCode: component(components, 'postal_code'),
+      country: component(components, 'country', 'short') || 'US',
+      latitude: typeof location?.lat === 'number' ? location.lat : null,
+      longitude: typeof location?.lng === 'number' ? location.lng : null,
+      placeId: payload.result.place_id ?? placeId,
+    };
+  } catch {
+    return null;
+  }
+}

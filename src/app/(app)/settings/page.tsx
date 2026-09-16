@@ -6,6 +6,7 @@ import { Alert } from '@/components/ui/Alert';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { requireAuth } from '@/lib/auth/context';
 import { prisma } from '@/lib/db/client';
+import { mapsEnabled } from '@/lib/maps/client';
 
 export const metadata: Metadata = { title: 'Settings' };
 export const dynamic = 'force-dynamic';
@@ -57,6 +58,7 @@ export default async function SettingsPage() {
         <div className="p-4 pt-0">
           <SettingsForm
             canEdit={canEdit}
+            mapsEnabled={mapsEnabled()}
             initial={{
               name: organization.name,
               ownerName: organization.ownerName ?? '',

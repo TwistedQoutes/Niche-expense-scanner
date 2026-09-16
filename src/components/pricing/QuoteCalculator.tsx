@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { Button } from '@/components/ui/Button';
+import { AddressAutocomplete } from '@/components/maps/AddressAutocomplete';
 import { Alert } from '@/components/ui/Alert';
+import { Button } from '@/components/ui/Button';
 import { SelectField, TextField } from '@/components/ui/Field';
 import { Spinner } from '@/components/ui/Spinner';
 import { ApiError, apiRequest } from '@/lib/api-client';
@@ -258,12 +259,26 @@ export function QuoteCalculator({
 
             {mapsEnabled ? (
               <div className="mt-2 flex gap-2">
-                <TextField
-                  label="Measure the drive to"
-                  placeholder="12 Oak Lane, Austin TX"
-                  value={travelTo}
-                  onChange={(event) => setTravelTo(event.target.value)}
-                />
+                <div className="flex-1">
+                  <AddressAutocomplete
+                    label="Measure the drive to"
+                    enabled
+                    placeholder="12 Oak Lane, Austin TX"
+                    value={travelTo}
+                    onChange={setTravelTo}
+                    // A chosen suggestion is rewritten as the full one-line
+                    // address before it is measured: Google matches "12 Oak Ln,
+                    // Austin, TX 78701" to one place and "12 Oak" to whichever
+                    // it likes best, and the miles land in a price either way.
+                    onResolved={(address) => {
+                      setTravelTo(
+                        [address.addressLine1, address.city, address.state, address.postalCode]
+                          .filter(Boolean)
+                          .join(', '),
+                      );
+                    }}
+                  />
+                </div>
                 <Button
                   type="button"
                   variant="secondary"

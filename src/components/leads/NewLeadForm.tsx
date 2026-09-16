@@ -4,6 +4,7 @@ import { LeadSource } from '@prisma/client';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 
+import { AddressAutocomplete } from '@/components/maps/AddressAutocomplete';
 import { Alert } from '@/components/ui/Alert';
 import { Button } from '@/components/ui/Button';
 import { SelectField, TextAreaField, TextField } from '@/components/ui/Field';
@@ -26,7 +27,7 @@ const SOURCE_LABELS: Record<LeadSource, string> = {
   [LeadSource.OTHER]: 'Other',
 };
 
-export function NewLeadForm() {
+export function NewLeadForm({ mapsEnabled = false }: { mapsEnabled?: boolean }) {
   const router = useRouter();
   const toast = useToast();
 
@@ -152,11 +153,34 @@ export function NewLeadForm() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <TextField
+          <AddressAutocomplete
             label="Property address"
+            enabled={mapsEnabled}
             value={form.addressLine1}
-            onChange={(event) => set('addressLine1', event.target.value)}
+            onChange={(value) => set('addressLine1', value)}
             error={fieldErrors.addressLine1}
+            placeholder="Start typing the address"
+            // City, state and ZIP come from the chosen suggestion rather than
+            // from the person: they are the three fields that get mistyped, and
+            // a wrong ZIP is a crew at the wrong end of town.
+            onResolved={(address) => {
+              setForm((current) => ({
+                ...current,
+                addressLine1: address.addressLine1 || current.addressLine1,
+                city: address.city || current.city,
+                state: address.state || current.state,
+                postalCode: address.postalCode || current.postalCode,
+              }));
+              // The four fields it just filled in cannot still be wrong; the
+              // rest of the form's errors are not its business.
+              setFieldErrors((current) => {
+                const next = { ...current };
+                for (const key of ['addressLine1', 'city', 'state', 'postalCode']) {
+                  delete next[key];
+                }
+                return next;
+              });
+            }}
           />
         </div>
         <TextField
