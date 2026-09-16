@@ -13,6 +13,24 @@ import { z } from 'zod';
  * and Google Maps unset. Each one turns on a feature; none of them gates the
  * core product.
  */
+/**
+ * An optional setting, where blank means absent.
+ *
+ * `.env.example` ships every optional key present and empty — `RESEND_API_KEY=""`
+ * — and its first line tells you to copy it to `.env` and fill in. Doing exactly
+ * that used to make the app refuse to boot, because `.optional()` admits
+ * `undefined` and not `''`, so eleven integrations nobody had asked for each
+ * reported "Too small: expected string to have >=1 characters". The first thing a
+ * new developer did was the thing that broke.
+ *
+ * A key left blank in a template means "I am not using this". Treating it as
+ * absent is what the person typing it meant, and it costs nothing: a real value
+ * still has to satisfy the rule behind it.
+ */
+function blankAsAbsent<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess((value) => (value === '' ? undefined : value), schema.optional());
+}
+
 const serverEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 
@@ -57,14 +75,14 @@ const serverEnvSchema = z.object({
   // --- Email ---------------------------------------------------------------
   /** "none" logs messages to the server console instead of sending them. */
   EMAIL_DRIVER: z.enum(['none', 'resend']).default('none'),
-  RESEND_API_KEY: z.string().min(1).optional(),
+  RESEND_API_KEY: blankAsAbsent(z.string().min(1)),
   EMAIL_FROM: z.string().default('JobFlow AI <onboarding@resend.dev>'),
 
   // --- SMS -----------------------------------------------------------------
   SMS_DRIVER: z.enum(['none', 'twilio']).default('none'),
-  TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
-  TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
-  TWILIO_PHONE_NUMBER: z.string().min(1).optional(),
+  TWILIO_ACCOUNT_SID: blankAsAbsent(z.string().min(1)),
+  TWILIO_AUTH_TOKEN: blankAsAbsent(z.string().min(1)),
+  TWILIO_PHONE_NUMBER: blankAsAbsent(z.string().min(1)),
   /** Overridable for the same reasons as OPENAI_BASE_URL: proxies and testing. */
   TWILIO_BASE_URL: z.string().url().default('https://api.twilio.com/2010-04-01'),
   /**
@@ -75,11 +93,11 @@ const serverEnvSchema = z.object({
    * against the wrong URL rejects every legitimate webhook. Set this explicitly
    * in production; it falls back to APP_URL.
    */
-  TWILIO_WEBHOOK_URL: z.string().url().optional(),
+  TWILIO_WEBHOOK_URL: blankAsAbsent(z.string().url()),
 
   // --- AI ------------------------------------------------------------------
   AI_DRIVER: z.enum(['none', 'openai']).default('none'),
-  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_API_KEY: blankAsAbsent(z.string().min(1)),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
   /**
    * Where the chat-completions endpoint lives.
@@ -112,24 +130,24 @@ const serverEnvSchema = z.object({
   /** Outside the served directory on purpose: these are not public files. */
   FILE_STORAGE_DIR: z.string().default('.storage'),
 
-  S3_BUCKET: z.string().min(1).optional(),
+  S3_BUCKET: blankAsAbsent(z.string().min(1)),
   S3_REGION: z.string().default('auto'),
   /** Include the scheme. R2: https://<account>.r2.cloudflarestorage.com */
-  S3_ENDPOINT: z.string().url().optional(),
-  S3_ACCESS_KEY_ID: z.string().min(1).optional(),
-  S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  S3_ENDPOINT: blankAsAbsent(z.string().url()),
+  S3_ACCESS_KEY_ID: blankAsAbsent(z.string().min(1)),
+  S3_SECRET_ACCESS_KEY: blankAsAbsent(z.string().min(1)),
 
   /**
    * Geocoding and drive time. Server-side only — it must never reach the browser.
    */
-  GOOGLE_MAPS_API_KEY: z.string().min(1).optional(),
+  GOOGLE_MAPS_API_KEY: blankAsAbsent(z.string().min(1)),
 
   // --- Billing -------------------------------------------------------------
-  STRIPE_SECRET_KEY: z.string().min(1).optional(),
-  STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
-  STRIPE_PRICE_STARTER: z.string().min(1).optional(),
-  STRIPE_PRICE_PRO: z.string().min(1).optional(),
-  STRIPE_PRICE_BUSINESS: z.string().min(1).optional(),
+  STRIPE_SECRET_KEY: blankAsAbsent(z.string().min(1)),
+  STRIPE_WEBHOOK_SECRET: blankAsAbsent(z.string().min(1)),
+  STRIPE_PRICE_STARTER: blankAsAbsent(z.string().min(1)),
+  STRIPE_PRICE_PRO: blankAsAbsent(z.string().min(1)),
+  STRIPE_PRICE_BUSINESS: blankAsAbsent(z.string().min(1)),
   /** Overridable for the same reason as the other base URLs: proxies and tests. */
   STRIPE_BASE_URL: z.string().url().default('https://api.stripe.com/v1'),
   /** Days of full PRO access a new workspace gets before a card is required. */
@@ -154,7 +172,7 @@ const serverEnvSchema = z.object({
    * /api/cron/automations refuses to run — an unauthenticated endpoint that
    * sends SMS on demand is someone else's marketing budget.
    */
-  CRON_SECRET: z.string().min(16).optional(),
+  CRON_SECRET: blankAsAbsent(z.string().min(16)),
 
   SUPPORT_EMAIL: z.string().default('support@jobflow.ai'),
 });

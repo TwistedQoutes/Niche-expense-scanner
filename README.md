@@ -58,9 +58,9 @@ dead links, and each phase flips its entries on as it lands.
 Named here rather than left to be discovered, because each one has a shape in the
 database or the environment that makes it look present:
 
-- **Google Maps is not wired.** Both keys are in `.env.example` and nothing reads
-  them. Address autocomplete, geocoding and drive-time estimates are unimplemented,
-  so travel distance on a quote is whatever the owner types.
+- **No address autocomplete in the browser.** Geocoding and drive distance are
+  wired server-side (see "Maps" below), but the address fields are still plain
+  text inputs — Places Autocomplete would need the browser key and a script tag.
 
 Two more, smaller: the end-to-end suite covers signup, the pipeline, tenant
 isolation, quote acceptance and team invites, but not billing, the automation
@@ -947,6 +947,54 @@ untestable in a production build, which is what `next start` and therefore CI is
 It is also what half of small operators will do regardless of what we email. The
 link is returned only when the email did *not* go out, so a token sitting in an
 inbox is not also sitting in a response body.
+
+---
+
+## Maps
+
+Two server-side calls, both optional, and one deliberate refusal.
+
+### It does not measure your lawn
+
+Satellite imagery can be made to produce an area figure, and that figure is a
+guess with a confident number attached: it cannot tell a lawn from a gravel drive,
+cannot see under a tree, and is months stale. Quoting from it means quoting a price
+the crew then argues about on the doorstep. `Property.lawnAreaSqFt` carries a
+`measurementSource` beside it for exactly this reason, and nothing automated ever
+sets either — an area on a property was measured by a person, or it is not there.
+
+### What it does instead
+
+**Geocoding.** Converting a won lead turns its address into coordinates and a
+place id, stored on the property. That is the one moment the address is known and
+somebody is already waiting. A failure returns null and the property saves without
+them: an address a human can read is still an address, and refusing to convert a
+won lead because a third party was slow would be the tail wagging the dog.
+
+**Drive distance.** The quote calculator's per-mile rule needs a number, and
+mileage is the one input an owner genuinely cannot eyeball. `POST
+/api/pricing/travel` measures road distance from the business address — a river or
+a junction is the difference between a ten-minute hop and a forty-minute detour, so
+straight-line distance would be charging for geometry rather than for fuel and
+time. Rounded to whole miles and minutes, because "12 miles" invites less argument
+than "11.83".
+
+It runs **only on a press**. Each call is billed, and an owner opening the
+calculator to look at a price should not spend money. The result is returned, not
+saved: mileage belongs to the quote it was calculated for, and a figure frozen onto
+a property would go stale while looking authoritative.
+
+### Failure is the normal case
+
+Every unhappy path — no match, a timeout, over quota, a refused key — returns null,
+because to the caller they are the same thing: carry on without it. The one that
+bites is Google answering **HTTP 200 with the failure inside the body**
+(`ZERO_RESULTS`, `OVER_QUERY_LIMIT`, `REQUEST_DENIED`), which anything checking
+only `response.ok` reads as success. `tests/maps.test.ts` covers each of those
+shapes against a stubbed fetch.
+
+With no key set, the Measure button is not rendered and mileage is typed by hand,
+exactly as before.
 
 ---
 

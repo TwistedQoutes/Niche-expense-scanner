@@ -7,6 +7,7 @@ import { ServiceEditor } from '@/components/pricing/ServiceEditor';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { hasRole, requireAuth } from '@/lib/auth/context';
+import { mapsEnabled } from '@/lib/maps/client';
 import { prisma } from '@/lib/db/client';
 import { formatBps, formatCents } from '@/lib/money';
 import { PRICING_RULE_SELECT, SERVICE_SELECT } from '@/lib/services/repository';
@@ -148,6 +149,7 @@ export default async function PricingSettingsPage() {
         />
         <div className="p-4">
           <QuoteCalculator
+            mapsEnabled={mapsEnabled()}
             services={services
               .filter((service) => service.active)
               .map((service) => ({

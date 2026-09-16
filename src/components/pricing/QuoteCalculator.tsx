@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { Button } from '@/components/ui/Button';
 import { Alert } from '@/components/ui/Alert';
 import { SelectField, TextField } from '@/components/ui/Field';
 import { Spinner } from '@/components/ui/Spinner';
@@ -35,9 +36,12 @@ export function QuoteCalculator({
   services,
   currency,
   defaults,
+  mapsEnabled = false,
 }: {
   services: ServiceOption[];
   currency: string;
+  /** Whether this deployment can measure a drive. Hides the button when it cannot. */
+  mapsEnabled?: boolean;
   defaults: {
     laborRateCents: number;
     profitMarginBps: number;
@@ -48,6 +52,54 @@ export function QuoteCalculator({
   };
 }) {
   const [serviceId, setServiceId] = useState('');
+  const [breakdown, setBreakdown] = useState<PricingBreakdown | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  // Each keystroke would otherwise fire a request. The ref holds the in-flight
+  // controller so a stale response cannot overwrite a newer one.
+  const inFlight = useRef<AbortController | null>(null);
+
+  function set<K extends keyof typeof form>(key: K, next: string) {
+    setForm((current) => ({ ...current, [key]: next }));
+  }
+
+  const [travelTo, setTravelTo] = useState('');
+  const [travelNote, setTravelNote] = useState<string | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+
+  /**
+   * Fills the mileage from the road distance, and says where the number came from.
+   *
+   * Only on a press: each call is a billed Google request, and an owner opening the
+   * calculator to look at a price should not spend money. The result overwrites
+   * whatever was typed, which is the point of pressing it — and the note underneath
+   * records that it was measured rather than guessed, because the next person to
+   * look at the quote cannot otherwise tell.
+   */
+  async function measureDrive() {
+    setMeasuring(true);
+    setTravelNote(null);
+
+    try {
+      const result = await apiRequest<{ travel: { miles: number; minutes: number } }>(
+        '/api/pricing/travel',
+        { method: 'POST', body: { address: travelTo } },
+      );
+
+      set('travelMiles', String(result.travel.miles));
+      setTravelNote(
+        `Measured: ${result.travel.miles} miles, about ${result.travel.minutes} minutes each way.`,
+      );
+    } catch (error) {
+      setTravelNote(
+        error instanceof Error ? error.message : 'That drive could not be measured.',
+      );
+    } finally {
+      setMeasuring(false);
+    }
+  }
+
   const [form, setForm] = useState({
     areaSqFt: '',
     laborMinutes: '',
@@ -63,18 +115,6 @@ export function QuoteCalculator({
     discount: '',
     override: '',
   });
-
-  const [breakdown, setBreakdown] = useState<PricingBreakdown | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  // Each keystroke would otherwise fire a request. The ref holds the in-flight
-  // controller so a stale response cannot overwrite a newer one.
-  const inFlight = useRef<AbortController | null>(null);
-
-  function set<K extends keyof typeof form>(key: K, next: string) {
-    setForm((current) => ({ ...current, [key]: next }));
-  }
 
   const calculate = useCallback(async () => {
     inFlight.current?.abort();
@@ -206,13 +246,37 @@ export function QuoteCalculator({
             onChange={(event) => set('equipment', event.target.value)}
           />
 
-          <TextField
-            label="Travel distance (miles)"
-            inputMode="numeric"
-            placeholder="0"
-            value={form.travelMiles}
-            onChange={(event) => set('travelMiles', event.target.value)}
-          />
+          <div>
+            <TextField
+              label="Travel distance (miles)"
+              inputMode="numeric"
+              placeholder="0"
+              value={form.travelMiles}
+              onChange={(event) => set('travelMiles', event.target.value)}
+              hint={travelNote ?? undefined}
+            />
+
+            {mapsEnabled ? (
+              <div className="mt-2 flex gap-2">
+                <TextField
+                  label="Measure the drive to"
+                  placeholder="12 Oak Lane, Austin TX"
+                  value={travelTo}
+                  onChange={(event) => setTravelTo(event.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="self-end"
+                  disabled={measuring || travelTo.trim().length < 4}
+                  onClick={measureDrive}
+                >
+                  {measuring ? 'Measuring…' : 'Measure'}
+                </Button>
+              </div>
+            ) : null}
+          </div>
 
           <TextField
             label="Travel fee"

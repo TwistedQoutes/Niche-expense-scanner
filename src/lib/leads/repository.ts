@@ -2,6 +2,7 @@ import { LeadStatus, Prisma } from '@prisma/client';
 
 import { conflict, notFound } from '@/lib/api/errors';
 import { assertOwned } from '@/lib/db/ownership';
+import { formatAddress, geocodeAddress } from '@/lib/maps/client';
 import type { TenantClient } from '@/lib/db/tenant';
 import { POSITION_GAP, positionBetween, respacedPositions } from '@/lib/leads/pipeline';
 
@@ -393,6 +394,28 @@ export async function convertLead(
   let propertyId = lead.propertyId;
 
   if (options.createProperty && !propertyId && lead.addressLine1) {
+    /*
+     * Geocoded on the way in, if this deployment has a Maps key.
+     *
+     * Coordinates are what make the drive-distance calculation possible later,
+     * and converting a lead is the one moment the address is known and somebody
+     * is waiting anyway. A failure returns null and the property is saved
+     * without them — an address a human can read is still an address, and
+     * refusing to convert a won lead because a third party was slow would be the
+     * tail wagging the dog.
+     *
+     * Note what is *not* set: `lawnAreaSqFt` and `measurementSource`. Nothing
+     * automated writes those. See src/lib/maps/client.ts.
+     */
+    const geocoded = await geocodeAddress(
+      formatAddress({
+        addressLine1: lead.addressLine1,
+        city: lead.city,
+        state: lead.state,
+        postalCode: lead.postalCode,
+      }),
+    );
+
     const property = await db.property.create({
       data: {
         organizationId,
@@ -401,6 +424,13 @@ export async function convertLead(
         city: lead.city,
         state: lead.state,
         postalCode: lead.postalCode,
+        ...(geocoded
+          ? {
+              latitude: geocoded.latitude,
+              longitude: geocoded.longitude,
+              googlePlaceId: geocoded.placeId || null,
+            }
+          : {}),
       },
       select: { id: true },
     });
