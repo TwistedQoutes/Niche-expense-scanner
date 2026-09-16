@@ -64,7 +64,10 @@ for leaving that alone is in `docs/performance-phase-14.md`.
 ## Requirements
 
 - **Node.js 22.12+** (`node --version`)
-- **PostgreSQL 14+** — local, or a managed host (Supabase, Neon, Railway, RDS)
+- **PostgreSQL 15+** — local, or a managed host (Neon, Supabase, Railway, RDS).
+  Not 14: the tenant migration uses `ON DELETE SET NULL ("column")`, whose
+  column-list form arrived in 15, and without it deleting a customer fails
+  outright. On 14 the migration does not apply at all.
 - npm 10+
 
 Nothing else is required to run the app. Every third-party integration is

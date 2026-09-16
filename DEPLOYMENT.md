@@ -27,8 +27,14 @@ working deployment. Skip to step 9 and come back.
 
 ## 1. The database
 
-Create a Postgres database. You need **two** connection strings from it, and the
-difference matters:
+Create a Postgres database, **version 15 or newer**. Not 14: the tenant migration
+uses `ON DELETE SET NULL ("column")`, and that column-list form arrived in
+Postgres 15. Prisma emits the plain form, which nulls the whole composite key
+including `organizationId` — a NOT NULL column — so deleting a customer fails
+outright. On 14 the migration does not apply at all, which is at least a loud
+failure and at the right moment: before any data exists.
+
+You need **two** connection strings from it, and the difference matters:
 
 ```bash
 # Pooled. The application uses this at request time. On Neon it is the URL
