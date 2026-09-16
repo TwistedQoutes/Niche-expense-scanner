@@ -161,15 +161,12 @@ jobs:
       AUTH_SECRET: ci-placeholder-value-not-a-real-credential
       APP_URL: http://127.0.0.1:3000
       NEXT_TELEMETRY_DISABLED: '1'
-      # No outbound message can leave a CI run. The specs create customers with
-      # phone numbers, and the review and quote flows are built to text people.
-      SMS_DRIVER: none
-      EMAIL_DRIVER: none
-      # A placeholder, NOT a secret. Its only job is to make the app render the
-      # address field as a combobox; the autocomplete spec intercepts the app's
-      # own lookup endpoint in the browser, so Google is never called and this
-      # value is never sent anywhere.
-      GOOGLE_MAPS_API_KEY: ci-placeholder-value-not-a-real-credential
+      # Everything the suite needs switched on — SMS_DRIVER=none so no message
+      # can leave a CI run, and placeholder keys for Stripe, Twilio and the cron
+      # secret — is set in tests/e2e/environment.ts and passed to the server by
+      # playwright.config.ts, which starts it. One copy, read by the specs too,
+      # because a webhook signed with a different secret than the server holds
+      # fails as a 400 that looks like a real bug.
 
     steps:
       - name: Check out the repository

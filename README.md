@@ -55,12 +55,9 @@ dead links, and each phase flips its entries on as it lands.
 
 ### What is not built
 
-Named here rather than left to be discovered: the end-to-end suite covers signup,
-the pipeline, tenant isolation, quote acceptance, team invites and address
-autocomplete, but not billing, the automation worker or the missed-call path —
-those have unit tests only. And `loadSpeed` and `monthlySeries` still aggregate in
-JavaScript what Postgres could aggregate in SQL; the reasoning for leaving that
-alone is in `docs/performance-phase-14.md`.
+Named here rather than left to be discovered: `loadSpeed` and `monthlySeries`
+still aggregate in JavaScript what Postgres could aggregate in SQL. The reasoning
+for leaving that alone is in `docs/performance-phase-14.md`.
 
 ---
 
@@ -1590,7 +1587,7 @@ To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 npm test
 ```
 
-460 tests covering tenant isolation, session tokens and revocation, the
+555 tests covering tenant isolation, session tokens and revocation, the
 redirect-loop regression, the AI guardrails and their false-positive behaviour,
 AI absence and bounded failure, quote expiry and response gating, public-id
 entropy, document numbering under a race, the pricing engine (including the
@@ -1620,6 +1617,46 @@ rather than against our reading of it.
 `tests/scheduling-time.test.ts` earns its place for a duller reason: an hour is a
 small error that produces a crew at the wrong house, and the only way to be sure is
 to round-trip every hour across the two days a year the arithmetic is hard.
+
+### End to end
+
+```bash
+npm run test:e2e
+```
+
+28 tests, run twice — once as a desktop browser and once as a phone, because this
+product is used one-handed in a truck and a layout that only works at 1280px does
+not work. They drive a production build against a real Postgres: signup and the
+pipeline, tenant isolation through real cookies, a stranger accepting a quote,
+team invites, address autocomplete, billing, the automation worker and the
+missed-call path.
+
+The last three are the ones a unit test cannot reach, because each is a
+conversation with somebody else's server:
+
+- **Billing.** A stub Stripe runs on loopback and the app talks to it through its
+  real client — `STRIPE_BASE_URL` exists for this — so a checkout is a real
+  round trip. Webhooks are signed by the spec with the secret the server holds:
+  a forged one is refused and changes nothing, a signed one grants the plan, a
+  redelivery of an event already handled is *not* applied a second time, and a
+  cancellation drops the workspace to the free ceiling, which then refuses the
+  sixth lead of the month by name and number.
+- **The automation worker.** The scheduler's endpoint refuses every request
+  without the shared secret. With it, a quote that goes out is followed up once
+  — and a second pass does not text the same person twice.
+- **The missed-call path.** An unsigned webhook does nothing at all: no lead, no
+  text, no thread. A signed one puts the call on the board and texts back on the
+  webhook's own request rather than on the next scheduled pass. An answered call
+  is left alone, a reply stops every sequence aimed at that person, and STOP is
+  acknowledged exactly once.
+
+Nothing leaves a test run. `SMS_DRIVER` and `EMAIL_DRIVER` are `none`, so a sent
+message is recorded as QUEUED and asserted on there; Stripe is the loopback stub;
+the Maps key only makes the address field a combobox, and that spec intercepts the
+app's own endpoint in the browser. Every secret the suite signs with is a
+placeholder in `tests/e2e/environment.ts`, read both by the specs and by the
+server `playwright.config.ts` starts — one copy, because a webhook signed with a
+different secret than the server holds fails as a 400 that looks like a real bug.
 
 ---
 

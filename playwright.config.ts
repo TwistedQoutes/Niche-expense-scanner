@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { E2E_ENV } from './tests/e2e/environment';
+
 /**
  * End-to-end tests, against a real build and a real database.
  *
@@ -61,5 +63,15 @@ export default defineConfig({
         // adopting a stray server would test something other than this commit.
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
+        /*
+         * The integrations the suite needs configured, as placeholders — see
+         * tests/e2e/environment.ts, which the specs read the same values from so
+         * that a webhook they sign is a webhook this server will accept.
+         *
+         * Pointing an existing server at a different set is the one way to get a
+         * confusing failure here, which is why `E2E_BASE_URL` (a server you
+         * started yourself) needs the same values exported.
+         */
+        env: { ...E2E_ENV },
       },
 });

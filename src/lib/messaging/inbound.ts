@@ -7,7 +7,12 @@ import {
   UsageMetric,
 } from '@prisma/client';
 
-import { cancelRunsForCustomer, cancelRuns, fireTrigger, type AutomationSubject } from '@/lib/automations/trigger';
+import {
+  cancelRunsForCustomer,
+  cancelRunsForLead,
+  fireTrigger,
+  type AutomationSubject,
+} from '@/lib/automations/trigger';
 import { runDueAutomations } from '@/lib/automations/worker';
 import { recordUsage } from '@/lib/billing/usage';
 import { prisma } from '@/lib/db/client';
@@ -198,7 +203,7 @@ export async function handleInboundSms(input: {
     const cancelled = customer
       ? await cancelRunsForCustomer(db, customer.id, { reason: 'customer opted out' })
       : lead
-        ? await cancelRuns(db, { type: 'lead', id: lead.id }, { reason: 'customer opted out' })
+        ? await cancelRunsForLead(db, lead.id, { reason: 'customer opted out' })
         : 0;
 
     // Sent directly rather than through sendMessage, which would (correctly)
@@ -267,7 +272,7 @@ export async function handleInboundSms(input: {
   const cancelled = customer
     ? await cancelRunsForCustomer(db, customer.id, { reason: 'customer replied' })
     : lead
-      ? await cancelRuns(db, { type: 'lead', id: lead.id }, { reason: 'customer replied' })
+      ? await cancelRunsForLead(db, lead.id, { reason: 'customer replied' })
       : 0;
 
   if (lead) {

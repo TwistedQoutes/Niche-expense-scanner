@@ -153,6 +153,37 @@ export async function cancelRuns(
 }
 
 /**
+ * Cancels every sequence aimed at somebody who is still a lead.
+ *
+ * The lead's own runs are the obvious half. The other half is the quote they
+ * were sent: a quote raised against a lead carries a three-touch follow-up whose
+ * subject is the *quote*, so cancelling by lead id alone leaves it running — and
+ * the person who has just replied "yes please" gets "just checking in" two days
+ * later. The customer version below has always swept across subjects; this is the
+ * same rule for the half of the pipeline where the person has not been converted
+ * yet.
+ */
+export async function cancelRunsForLead(
+  db: TenantClient,
+  leadId: string,
+  options: { reason?: string } = {},
+): Promise<number> {
+  const quotes = await db.quote.findMany({ where: { leadId }, select: { id: true } });
+
+  const subjects: { type: SubjectType; id: string }[] = [
+    { type: 'lead', id: leadId },
+    ...quotes.map((row) => ({ type: 'quote' as const, id: row.id })),
+  ];
+
+  let cancelled = 0;
+  for (const subject of subjects) {
+    cancelled += await cancelRuns(db, subject, options);
+  }
+
+  return cancelled;
+}
+
+/**
  * Cancels every sequence aimed at a person, across subjects.
  *
  * A customer who replies to a quote follow-up has also, in effect, replied to the

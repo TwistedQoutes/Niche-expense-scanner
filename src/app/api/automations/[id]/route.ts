@@ -4,7 +4,7 @@ import { notFound, validationFailed } from '@/lib/api/errors';
 import { readJsonBody, withRoute } from '@/lib/api/handler';
 import { RATE_LIMITS, enforceRateLimit } from '@/lib/api/rate-limit';
 import { jsonOk, toFieldErrors } from '@/lib/api/response';
-import { requireRole } from '@/lib/auth/context';
+import { requireAuth, requireRole } from '@/lib/auth/context';
 import { unknownPlaceholders } from '@/lib/messaging/templates';
 import { idSchema } from '@/lib/validation/common';
 import { updateAutomationSchema, updateAutomationStepSchema } from '@/lib/validation/messaging';
@@ -18,6 +18,47 @@ async function readId(params: Promise<{ id: string }>): Promise<string> {
   if (!parsed.success) throw notFound('That automation does not exist.');
   return parsed.data;
 }
+
+/**
+ * One automation, with its steps.
+ *
+ * Exists because the editor below is keyed on a step id, and until now nothing
+ * handed one out: the page renders steps without their ids, so a caller could
+ * change a step's timing only if it already knew an identifier it had no way to
+ * learn. Readable by any member — the automations screen shows the same thing to
+ * everyone — while changing one still needs ADMIN.
+ */
+export const GET = withRoute(async (_request, context: { params: Promise<{ id: string }> }) => {
+  const auth = await requireAuth();
+
+  const id = await readId(context.params);
+
+  const automation = await auth.db.automation.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      trigger: true,
+      enabled: true,
+      steps: {
+        orderBy: { position: 'asc' },
+        select: {
+          id: true,
+          position: true,
+          delayMinutes: true,
+          action: true,
+          subject: true,
+          template: true,
+        },
+      },
+    },
+  });
+
+  if (!automation) throw notFound('That automation does not exist.');
+
+  return jsonOk({ automation });
+});
 
 /**
  * Switching an automation on or off, and renaming it.
