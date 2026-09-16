@@ -58,8 +58,12 @@ to revoke every session at once after a compromise.
 
 ## 3. Deploy
 
-1. Push the repository and import it in Vercel. The app **is** the repository
-   root, so leave Root Directory alone. (It lived in a `jobflow/` subdirectory
+1. Push the repository and import it in Vercel — this link opens the import with
+   the repository already chosen:
+   <https://vercel.com/new/import?s=https://github.com/TwistedQoutes/Niche-expense-scanner>
+
+   Set the production branch to the one you want deployed (`main`). The app **is**
+   the repository root, so leave Root Directory alone. (It lived in a `jobflow/` subdirectory
    until it was promoted — if an earlier deploy set that, clear it.)
 2. Add `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, and:
    ```bash
@@ -153,6 +157,19 @@ CRON_SECRET="$(openssl rand -hex 32)"
 | --- | --- | --- |
 | `/api/cron/automations` | every minute | Runs due automation steps. This cadence is the worst case for "how late can a follow-up be". |
 | `/api/cron/automations?sweep=1` | `0 14 * * *` daily | Also runs the reactivation sweep and deletes expired demo workspaces. |
+
+**Check what your Vercel plan allows before the first deploy.** Vercel's free
+(Hobby) plan limits cron jobs to a small number, running once a day — a
+minute-by-minute schedule is a paid feature, and on Hobby the committed
+`vercel.json` will either be refused or quietly not run at that cadence, which
+looks exactly like follow-ups being broken. Two ways out, both fine:
+
+- Change the first schedule to something the plan allows (`0 * * * *` hourly, or
+  `0 13 * * *` daily). A follow-up arrives later; nothing else changes.
+- Leave `vercel.json` alone and schedule it somewhere else — any host with cron,
+  GitHub Actions, or a service like cron-job.org — pointing at the same endpoint
+  with the same bearer token. The endpoint does not care who calls it, only that
+  the secret matches.
 
 Vercel Cron sends `Authorization: Bearer <CRON_SECRET>` when that variable is set
 on the project; the endpoint also accepts `x-cron-secret`, and compares in
