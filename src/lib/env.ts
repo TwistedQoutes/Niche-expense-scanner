@@ -97,6 +97,31 @@ const serverEnvSchema = z.object({
    * because the two need different API restrictions: the browser key is
    * referrer-locked and visible in page source, this one must never be.
    */
+  /**
+   * Where uploaded job photos are stored.
+   *
+   * "none" by default: a deployment that has not decided where photographs of
+   * customers' properties should live must not start writing them somewhere by
+   * accident. "local" writes to disk, which is right on a long-lived server and
+   * wrong on a serverless one, where the filesystem is per-invocation and a photo
+   * uploaded on one request is gone by the next. "s3" is anything speaking the S3
+   * protocol — AWS, Cloudflare R2, Backblaze B2, MinIO.
+   */
+  FILE_STORAGE_DRIVER: z.enum(['none', 'local', 's3']).default('none'),
+
+  /** Outside the served directory on purpose: these are not public files. */
+  FILE_STORAGE_DIR: z.string().default('.storage'),
+
+  S3_BUCKET: z.string().min(1).optional(),
+  S3_REGION: z.string().default('auto'),
+  /** Include the scheme. R2: https://<account>.r2.cloudflarestorage.com */
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_ACCESS_KEY_ID: z.string().min(1).optional(),
+  S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+
+  /**
+   * Geocoding and drive time. Server-side only — it must never reach the browser.
+   */
   GOOGLE_MAPS_API_KEY: z.string().min(1).optional(),
 
   // --- Billing -------------------------------------------------------------
@@ -170,6 +195,14 @@ export function getEnv(): ServerEnv {
   }
   if (value.STRIPE_SECRET_KEY && !value.STRIPE_WEBHOOK_SECRET) {
     missing.push('STRIPE_WEBHOOK_SECRET is required when STRIPE_SECRET_KEY is set');
+  }
+  if (value.FILE_STORAGE_DRIVER === 's3') {
+    if (!value.S3_BUCKET) missing.push('S3_BUCKET is required when FILE_STORAGE_DRIVER is "s3"');
+    if (!value.S3_ENDPOINT) missing.push('S3_ENDPOINT is required when FILE_STORAGE_DRIVER is "s3"');
+    if (!value.S3_ACCESS_KEY_ID) missing.push('S3_ACCESS_KEY_ID is required when FILE_STORAGE_DRIVER is "s3"');
+    if (!value.S3_SECRET_ACCESS_KEY) {
+      missing.push('S3_SECRET_ACCESS_KEY is required when FILE_STORAGE_DRIVER is "s3"');
+    }
   }
 
   if (missing.length > 0) {

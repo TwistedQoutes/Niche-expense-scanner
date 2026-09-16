@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { JobActions } from '@/components/jobs/JobActions';
+import { JobPhotos } from '@/components/jobs/JobPhotos';
 import { ScheduleForm } from '@/components/jobs/ScheduleForm';
 import {
   APPOINTMENT_STATUS_LABEL,
@@ -13,7 +14,11 @@ import {
 } from '@/components/jobs/status';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardHeader } from '@/components/ui/Card';
-import { requireAuth } from '@/lib/auth/context';
+import { Role } from '@prisma/client';
+
+import { hasRole, requireAuth } from '@/lib/auth/context';
+import { listJobPhotos } from '@/lib/files/repository';
+import { MAX_UPLOAD_BYTES, storageEnabled } from '@/lib/storage';
 import {
   formatDateTimeLabel,
   formatRelative,
@@ -41,6 +46,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
   const timeZone = auth.organization.timezone;
   const appointment = job.appointments[0] ?? null;
+
+  const photos = await listJobPhotos(auth.db, job.id);
 
   const teammates = await auth.db.membership.findMany({
     where: { status: 'ACTIVE' },
@@ -153,6 +160,14 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               </div>
             </Card>
           ) : null}
+
+          <JobPhotos
+            jobId={job.id}
+            photos={photos}
+            storageConfigured={storageEnabled()}
+            canDelete={hasRole(auth, Role.ADMIN)}
+            maxBytes={MAX_UPLOAD_BYTES}
+          />
         </div>
 
         <div className="space-y-4">

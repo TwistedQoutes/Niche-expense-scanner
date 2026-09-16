@@ -58,9 +58,6 @@ dead links, and each phase flips its entries on as it lands.
 Named here rather than left to be discovered, because each one has a shape in the
 database or the environment that makes it look present:
 
-- **No file uploads.** The `File` model exists, scoped to a lead or a job, and
-  nothing writes to it. Before-and-after job photos need a storage driver and an
-  upload route.
 - **Google Maps is not wired.** Both keys are in `.env.example` and nothing reads
   them. Address autocomplete, geocoding and drive-time estimates are unimplemented,
   so travel distance on a quote is whatever the owner types.

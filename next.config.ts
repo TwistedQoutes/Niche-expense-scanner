@@ -42,10 +42,9 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   /**
-   * This app lives in a subdirectory of a repository that contains another one,
-   * so Turbopack finds two lockfiles and has to guess which is the root. Saying
-   * so explicitly stops it inferring the parent and pulling in files that are
-   * not part of JobFlow.
+   * Pinned so Turbopack never infers the root from a lockfile it finds further
+   * up. This mattered more when the app lived in a subdirectory; it is cheap
+   * insurance now that it is the repository root.
    */
   turbopack: {
     root: import.meta.dirname,
@@ -76,6 +75,28 @@ const nextConfig: NextConfig = {
             key: 'Strict-Transport-Security',
             value: 'max-age=63072000; includeSubDomains; preload',
           },
+        ],
+      },
+      {
+        /*
+         * Uploaded bytes get a stricter policy than the rest of the site, and it
+         * lives here rather than on the route because a header set in a handler
+         * loses to this config for the same key — so the route's own CSP was
+         * being silently overridden, which a probe caught. It also has to come
+         * *after* the catch-all above: for two rules matching the same request,
+         * the later one wins, and putting it first was the second half of the
+         * same bug.
+         *
+         * `sandbox` puts the response in an opaque origin with nothing enabled.
+         * The contents are already identified by their leading bytes at upload
+         * and can only be one of four image formats, but this is the layer that
+         * holds if that check is ever wrong: a document served from here cannot
+         * run script, submit a form, or touch anything of ours.
+         */
+        source: '/api/files/:path*',
+        headers: [
+          { key: 'Content-Security-Policy', value: "default-src 'none'; sandbox" },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
         ],
       },
     ];
