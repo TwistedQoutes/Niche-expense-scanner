@@ -77,6 +77,34 @@ to revoke every session at once after a compromise.
    the database**, so it succeeds before any of this is correct. That is
    deliberate: you cannot set production secrets on a deploy that has never built.
 
+## 3a. Or let the script do 3 to 5
+
+Steps 3 through 5 are mechanical, and mechanical steps done by hand are where
+deployments go wrong — a migration run against the pooled URL, a secret pasted
+with a trailing newline, `APP_URL` left pointing at localhost so every quote link
+a customer receives goes nowhere. One command instead:
+
+```bash
+./scripts/deploy.sh \
+  --database-url "postgresql://…-pooler…" \
+  --direct-url   "postgresql://…direct…"
+```
+
+It applies the migrations against the direct URL, refuses to continue unless the
+tenant boundary checks out, generates `AUTH_SECRET` and `CRON_SECRET` and hands
+them to Vercel without printing them, deploys, then — because a first deploy
+cannot know its own address — sets `APP_URL` to the URL Vercel just assigned and
+deploys again. Pass `--app-url https://yourdomain.com` if you already have the
+domain, and it skips that second pass. Re-running is safe.
+
+`--database-only` stops after the migrations, which is what you want when you are
+bringing a database up to date rather than shipping.
+
+The rest of this document is the same work done by hand, and is what to read when
+a step fails.
+
+---
+
 ## 4. Create the schema
 
 Against the **direct** URL, from your machine:
