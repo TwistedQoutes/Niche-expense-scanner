@@ -323,7 +323,8 @@ ten minutes.
 | Symptom | Cause |
 | --- | --- |
 | Quote links point at `localhost` | `APP_URL` is unset or wrong. |
-| Nobody can reset a password | `EMAIL_DRIVER` is `none`, or `EMAIL_FROM` is not on the Resend-verified domain. The reset link is in no log — the body is withheld in production on purpose. |
+| Nobody can reset a password | `EMAIL_DRIVER` is `none`, or `EMAIL_FROM` is not on the Resend-verified domain. The reset link is in no log — the body is withheld in production on purpose. Unconfigured, the screen says so rather than sending anyone to an inbox nothing was sent to. |
+| The first page load after a quiet spell is slow | A serverless database suspends when idle and takes a second or two to wake. The app retries a failed *connection* for up to eight seconds rather than showing an error, so this costs a slow request, not a broken one. |
 | Messages stay `QUEUED` forever | `SMS_DRIVER` is `none`, or Twilio credentials are wrong. The message is threaded either way, which is why the inbox looks healthy. |
 | Inbound texts never arrive | Twilio's webhook URL, or `TWILIO_WEBHOOK_URL` not matching the URL Twilio signs. |
 | Follow-ups never send | `CRON_SECRET` unset (the endpoint refuses), or the Vercel cron is not firing. |
@@ -335,6 +336,11 @@ ten minutes.
 
 - **Backups.** Neon and Supabase both do point-in-time recovery on paid tiers. The
   free tiers do not. You are storing other people's customer lists.
+- **Scale to zero.** A free-tier database suspends after a few minutes idle. The
+  first request afterwards wakes it, and the app waits — retrying the connection,
+  never the statement, so a write cannot be applied twice. Nobody sees an error;
+  somebody sees a slow page. Keeping the cron on a short schedule also keeps the
+  database warm as a side effect.
 - **Rotating a secret.** `AUTH_SECRET` signs everyone out. Stripe and Twilio keys
   can be swapped with no user-visible effect. Changing `CRON_SECRET` requires
   updating it on the Vercel project too, or follow-ups silently stop.

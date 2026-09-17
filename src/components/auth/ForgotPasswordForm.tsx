@@ -8,7 +8,20 @@ import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/Field';
 import { ApiError, apiRequest } from '@/lib/api-client';
 
-export function ForgotPasswordForm() {
+/**
+ * "We'll email you a link" is a promise, and a deployment with no email provider
+ * cannot keep it.
+ *
+ * Unconfigured, this screen used to accept the address, say "check your email",
+ * and suggest looking in spam for a message that was never sent — which turns a
+ * forgotten password into an account nobody can get back into, with the product
+ * insisting it did its part. So when there is no way to deliver, the screen says
+ * so instead of taking the request.
+ *
+ * The API is unchanged: it still answers the same way whether or not the address
+ * has an account, because that is what stops it being used to find out.
+ */
+export function ForgotPasswordForm({ emailEnabled = true }: { emailEnabled?: boolean }) {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +42,35 @@ export function ForgotPasswordForm() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (!emailEnabled) {
+    return (
+      <div className="w-full max-w-sm">
+        <h1 className="text-2xl font-bold tracking-tight">Reset your password</h1>
+
+        <div className="mt-6 space-y-4">
+          <Alert tone="warning" title="This site cannot send email yet">
+            <p>
+              Password reset works by emailing you a link, and no email provider is
+              configured here — so asking for one would send you to an inbox that
+              never receives it.
+            </p>
+            <p className="mt-2">
+              If you run this deployment, setting <code>EMAIL_DRIVER</code> and{' '}
+              <code>RESEND_API_KEY</code> turns this screen on. Otherwise, ask whoever
+              does: an owner or admin can also change a password for you directly.
+            </p>
+          </Alert>
+
+          <Link href="/login" className="block">
+            <Button variant="secondary" size="lg" fullWidth>
+              Back to sign in
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   return (

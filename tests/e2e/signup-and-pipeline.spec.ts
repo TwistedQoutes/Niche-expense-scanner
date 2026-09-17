@@ -62,3 +62,22 @@ test('every built screen renders for a brand-new workspace', async ({ page }) =>
     await expectNoServerError(page);
   }
 });
+
+/**
+ * The screen that used to promise what it could not deliver.
+ *
+ * With no email provider configured — which is how this suite runs, and how a
+ * first deployment starts — a reset link cannot be sent. Telling somebody to
+ * check their spam folder for it turns a forgotten password into an account
+ * nobody can recover, with the product insisting it did its part.
+ */
+test('password reset says so when the deployment cannot send email', async ({ page }) => {
+  await page.goto('/forgot-password');
+
+  await expect(page.getByText('This site cannot send email yet')).toBeVisible();
+  // And it does not take an address it cannot do anything with.
+  await expect(page.getByRole('button', { name: /send the reset link/i })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /back to sign in/i })).toBeVisible();
+
+  await expectNoServerError(page);
+});
