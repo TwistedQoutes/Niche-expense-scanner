@@ -9,14 +9,35 @@ import { SESSION_COOKIE } from '@/lib/auth/session';
  * renamed it to `proxy.ts` with a matching `proxy` export.)
  *
  * It only checks that a session cookie is *present* — it deliberately does not
- * verify the signature. Proxy code runs on every matched request and may be
- * deployed to a CDN edge, so the real authorisation decision is made in the
- * page/route itself via `requireUser()`, which also confirms the user still
- * exists. A cheap presence check here keeps signed-out visitors from loading an
- * app shell they cannot use, without turning this file into a second,
- * divergent copy of the auth logic.
+ * verify the signature or read the database. Proxy code runs on every matched
+ * request and may execute at a CDN edge, so the real authorisation decision is
+ * made in the page or route itself via `requireAuth()`, which also confirms the
+ * membership still exists and the workspace is not suspended.
+ *
+ * A cheap presence check here keeps signed-out visitors from loading an app
+ * shell they cannot use, without turning this file into a second, divergent
+ * copy of the auth logic. Anything that reads tenant data still authorises
+ * itself; nothing trusts this.
  */
-const PROTECTED_PREFIXES = ['/dashboard', '/scan', '/settings'];
+const PROTECTED_PREFIXES = [
+  '/dashboard',
+  '/leads',
+  '/customers',
+  '/quotes',
+  '/jobs',
+  '/calendar',
+  '/messages',
+  '/automations',
+  '/reviews',
+  '/analytics',
+  '/pricing-settings',
+  '/settings',
+  '/team',
+  '/billing',
+  '/onboarding',
+  '/admin',
+];
+
 const AUTH_ROUTES = ['/login', '/signup', '/forgot-password'];
 
 export function proxy(request: NextRequest) {
@@ -25,7 +46,7 @@ export function proxy(request: NextRequest) {
 
   if (PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix)) && !hasSessionCookie) {
     const login = new URL('/login', request.url);
-    // Remember where they were headed so sign-in can complete the journey.
+    // Remember where they were headed so signing in completes the journey.
     login.searchParams.set('next', `${pathname}${search}`);
     return NextResponse.redirect(login);
   }
@@ -38,6 +59,13 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except Next internals, the OCR assets and static files.
-  matcher: ['/((?!api|_next/static|_next/image|ocr|favicon.ico|manifest.webmanifest).*)'],
+  /**
+   * Everything except Next internals and static files.
+   *
+   * `/quote/…`, `/invite/…` and `/intake/…` are matched but never protected: a
+   * customer must be able to open a quote without an account, an invited teammate
+   * has no account yet by definition, and the public intake form is
+   * the point of lead capture.
+   */
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|manifest.webmanifest).*)'],
 };

@@ -41,7 +41,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: nes_ci
+          POSTGRES_DB: jobflow_ci
         ports:
           - 5432:5432
         options: >-
@@ -55,8 +55,11 @@ jobs:
       #
       # The app validates its whole environment at boot (src/lib/env.ts), so
       # `prisma generate` (via postinstall) and `next build` both refuse to run
-      # without these.
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nes_ci
+      # without these. Nothing here reaches a real service: every integration
+      # (Stripe, Twilio, Resend, OpenAI) is independently optional and stays off
+      # while its key is unset, which is what makes this honest rather than a
+      # place credentials would eventually be needed.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jobflow_ci
       AUTH_SECRET: ci-placeholder-value-not-a-real-credential
       # Keeps `next build` from reporting anonymous usage data from CI.
       NEXT_TELEMETRY_DISABLED: '1'
@@ -71,6 +74,7 @@ jobs:
           node-version: ${{ matrix.node }}
           # Caches ~/.npm, keyed on the lockfile.
           cache: npm
+          cache-dependency-path: package-lock.json
 
       # Next's own CI guidance (node_modules/next/dist/docs/01-app/02-guides/
       # ci-build-caching.md). Keyed on the lockfile plus sources, with a
@@ -95,6 +99,16 @@ jobs:
         # order — the thing that otherwise only gets tested in production.
         run: npx prisma migrate deploy
 
+      # Runs against the database the migrations were just applied to. Asserts
+      # every relation between two tenant-owned tables is still a composite
+      # foreign key, that each ON DELETE SET NULL still names only its own
+      # column, and — by attempting one inside a transaction it rolls back — that
+      # Postgres still refuses a cross-tenant reference. A `prisma migrate dev`
+      # that regenerates one of these constraints drops the column list and
+      # breaks deletes without failing anything else in the toolchain.
+      - name: Check the tenant boundary is still enforced
+        run: npm run db:check-constraints
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -105,8 +119,6 @@ jobs:
         run: npm test
 
       - name: Build
-        # Also exercises scripts/setup-ocr-assets.mjs, so a broken OCR asset
-        # path is caught here rather than by an artist mid-scan.
         run: npm run build
 
       # Advisory, not gating: an advisory published upstream overnight should be
@@ -114,3 +126,87 @@ jobs:
       - name: Audit production dependencies
         continue-on-error: true
         run: npm audit --omit=dev --audit-level=high
+
+  e2e:
+    name: End-to-end (${{ matrix.project }})
+    runs-on: ubuntu-latest
+
+    # These drive a real browser against a real build and a real database, which
+    # is the only place the properties they check are observable: multi-tenant
+    # isolation is a claim about what one signed-in session can reach, and no
+    # unit test can see that. Split by Playwright project so a desktop-only or
+    # phone-only regression names itself in the run list.
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, mobile]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jobflow_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/jobflow_e2e
+      AUTH_SECRET: ci-placeholder-value-not-a-real-credential
+      APP_URL: http://127.0.0.1:3000
+      NEXT_TELEMETRY_DISABLED: '1'
+      # Everything the suite needs switched on — SMS_DRIVER=none so no message
+      # can leave a CI run, and placeholder keys for Stripe, Twilio and the cron
+      # secret — is set in tests/e2e/environment.ts and passed to the server by
+      # playwright.config.ts, which starts it. One copy, read by the specs too,
+      # because a webhook signed with a different secret than the server holds
+      # fails as a 400 that looks like a real bug.
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install the Playwright browser
+        # Chromium only — both projects use it, and the browser download is the
+        # slowest step in this job.
+        run: npx playwright install --with-deps chromium
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Build
+        run: npm run build
+
+      # `playwright.config.ts` starts `next start` itself and waits for it, so
+      # there is no server to launch or poll here. A fresh process also means a
+      # fresh rate limiter: signup is capped per IP and the whole suite arrives
+      # from one address, which is a real failure mode when the same server has
+      # been serving runs all day.
+      - name: Run the end-to-end suite
+        run: npm run test:e2e -- --project=${{ matrix.project }}
+
+      - name: Upload the report when something failed
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-report-${{ matrix.project }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

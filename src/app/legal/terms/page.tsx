@@ -2,102 +2,115 @@ import type { Metadata } from 'next';
 
 import { ContactEmail, Disclaimer, LAST_UPDATED, Section } from '@/components/legal/Section';
 
-export const metadata: Metadata = { title: 'Terms of Service' };
+export const metadata: Metadata = {
+  title: 'Terms of Service',
+  robots: { index: true, follow: true },
+};
 
-/**
- * Terms of Service.
- *
- * A plain-language starting point, not a substitute for a lawyer. It is written
- * to be honest about the two things that actually create risk for this product:
- * it is not a tax adviser, and the OCR is not guaranteed to be right.
- */
 export default function TermsPage() {
   return (
     <>
-      <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-        Terms of Service
-      </h1>
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        Last updated {LAST_UPDATED}
-      </p>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+          Terms of Service
+        </h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          Last updated {LAST_UPDATED}
+        </p>
+      </div>
 
-      <Section title="1. What this service is">
-        Niche Expense Scanner is a tool for recording business expenses. You photograph a receipt,
-        the text is read on your own device, and the result is saved to your account and
-        categorised. That is the whole of what we provide.
+      <Section title="What JobFlow AI is">
+        <p>
+          JobFlow AI is software for managing leads, quotes and jobs. You use it to run your
+          business; we do not perform any of the services you sell, we are not party to the
+          agreements you make with your customers, and we are not responsible for the work you
+          carry out.
+        </p>
       </Section>
 
-      <Section title="2. It is not tax advice">
-        The categories we suggest, including the IRS Schedule&nbsp;C lines shown in exports, are
-        general information to save you time. They are <strong>not</strong> tax, accounting or
-        legal advice, and we are not your accountant. Whether a particular expense is deductible,
-        and on which line it belongs, depends on facts we do not know. Check anything that matters
-        with a qualified professional before filing.
+      <Section title="Your account">
+        <p>
+          You are responsible for keeping your password safe and for everything done through your
+          account. Tell us promptly if you think someone else has access. You must be old enough to
+          enter a contract where you live, and the details you give us during setup must be
+          accurate — quotes you send carry them.
+        </p>
       </Section>
 
-      <Section title="3. Accuracy is your responsibility">
-        Text recognition is automated and imperfect: totals, dates and merchant names can be read
-        wrongly, especially from faded or creased receipts. That is why every scanned value is
-        shown to you in an editable form before it is saved. <strong>You are responsible for
-        checking that what is saved matches your receipt.</strong> We do not warrant that
-        extracted data is accurate or complete.
+      <Section title="Your data is yours">
+        <p>
+          You own the customer records, quotes, jobs and messages you put into JobFlow. We store and
+          process them to provide the service to you. You can export them at any time, and deleting
+          your workspace deletes them.
+        </p>
       </Section>
 
-      <Section title="4. Your account">
-        You need an accurate email address, you are responsible for keeping your password secret,
-        and you are responsible for activity under your account. Tell us promptly if you think
-        someone else has access. You must be old enough to enter a contract where you live, and you
-        may not use the service for anything unlawful, or attempt to break, overload or reverse
-        engineer it.
+      <Section title="Pricing and quotes are yours too">
+        <p>
+          The quote calculator applies the rates, margins and minimums you configure. The numbers it
+          produces are estimates based on what you enter — checking that a price is right for a job
+          is your judgement, not ours, and we are not liable for a job that turns out to cost more
+          than you quoted.
+        </p>
       </Section>
 
-      <Section title="5. Your data belongs to you">
-        You keep all rights to the expenses, receipts and images you put into the service. We store
-        and process them only to provide the service to you. You can export everything at any time
-        from Settings, and deleting your account removes it. We do not sell your data, and we do
-        not use it to train machine-learning models.
+      <Section title="What the AI does and does not do">
+        <p>
+          The AI features summarise leads, score them and draft messages. They can be wrong. They
+          will not quote a price you have not configured, make legal or safety claims on your
+          behalf, or commit you to a time slot that is not on your calendar — but you should read
+          what they write before it goes to a customer, because it goes out under your name.
+        </p>
       </Section>
 
-      <Section title="6. Subscriptions, trials and refunds">
-        New accounts get a free trial. After it ends you can still view, edit, export and delete
-        everything you have already recorded — we will never lock you out of your own records — but
-        recording new expenses requires an active subscription.
-        <br />
-        <br />
-        Subscriptions renew automatically until cancelled. You can cancel any time from the billing
-        portal in Settings, without contacting us; access continues to the end of the period you
-        have paid for. Payments are handled by Stripe, and we never see your card details. If
-        something has gone wrong, email us and we will deal with it fairly.
+      <Section title="Messaging and consent">
+        <p>
+          If you send SMS or email through JobFlow, you are the sender. You are responsible for
+          having permission to contact those people and for complying with the rules that apply to
+          you — in the United States that includes the TCPA and CAN-SPAM, and it means honouring
+          opt-outs. We will suspend an account being used to send unsolicited messages.
+        </p>
       </Section>
 
-      <Section title="7. Availability">
-        We will make reasonable efforts to keep the service running, but it is provided &ldquo;as
-        is&rdquo; and we do not promise uninterrupted or error-free operation. We may change or
-        discontinue features. If we discontinue the service entirely, we will give you reasonable
-        notice and time to export your data.
+      <Section title="Payment">
+        <p>
+          Paid plans are billed monthly in advance through Stripe and renew until cancelled. You can
+          change or cancel your plan at any time; cancelling stops the next renewal and you keep
+          access until the end of the period you have paid for. We do not give partial refunds for
+          time already elapsed unless the law where you live says otherwise.
+        </p>
       </Section>
 
-      <Section title="8. Limits on our liability">
-        To the fullest extent the law allows, we are not liable for indirect or consequential loss,
-        or for lost profits, revenue or data. Our total liability for any claim is limited to the
-        greater of the amount you paid us in the twelve months before the claim, or twenty US
-        dollars. Nothing here limits liability that cannot lawfully be limited.
+      <Section title="Availability">
+        <p>
+          We work to keep JobFlow running but do not promise it will never be unavailable. Planned
+          maintenance, a failure at a provider we depend on, or a fault of our own can interrupt it.
+          Keep your own record of anything you cannot afford to lose.
+        </p>
       </Section>
 
-      <Section title="9. Ending the agreement">
-        You may stop using the service and delete your account at any time. We may suspend or end
-        your account if you materially breach these terms, or if we are required to by law. On
-        termination your right to use the service ends; your export rights up to that point do not.
+      <Section title="Acceptable use">
+        <p>
+          Do not use JobFlow to break the law, to send messages to people who have not agreed to
+          hear from you, to store data you have no right to hold, or to attack the service or other
+          customers of it. We may suspend an account that does.
+        </p>
       </Section>
 
-      <Section title="10. Changes to these terms">
-        We may update these terms. If a change materially reduces your rights, we will tell you by
-        email before it takes effect. Continuing to use the service after that means you accept the
-        change.
+      <Section title="Liability">
+        <p>
+          To the extent the law allows, our total liability to you is limited to what you paid us in
+          the twelve months before the claim, and we are not liable for lost profits, lost business
+          or lost data. Nothing here limits liability that cannot legally be limited.
+        </p>
       </Section>
 
-      <Section title="11. Contact">
-        Questions about these terms: <ContactEmail />
+      <Section title="Changes and contact">
+        <p>
+          We may update these terms; material changes will be announced in the app before they take
+          effect, and continuing to use JobFlow after that means you accept them. Questions go to{' '}
+          <ContactEmail />.
+        </p>
       </Section>
 
       <Disclaimer />

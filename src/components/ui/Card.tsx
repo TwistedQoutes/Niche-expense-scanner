@@ -6,7 +6,7 @@ export function Card({ className, children }: { className?: string; children: Re
   return (
     <div
       className={cn(
-        'rounded-2xl bg-white ring-1 ring-zinc-200/80 dark:bg-zinc-900 dark:ring-zinc-800',
+        'rounded-2xl bg-white ring-1 ring-slate-200/80 dark:bg-slate-900 dark:ring-slate-800',
         className,
       )}
     >
@@ -25,11 +25,11 @@ export function CardHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-zinc-100 px-4 py-3.5 dark:border-zinc-800">
+    <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3.5 dark:border-slate-800">
       <div className="min-w-0">
-        <h2 className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{title}</h2>
+        <h2 className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
         {description ? (
-          <p className="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">{description}</p>
+          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{description}</p>
         ) : null}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}

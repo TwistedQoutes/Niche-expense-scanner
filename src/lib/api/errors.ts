@@ -16,7 +16,11 @@ export type ErrorCode =
   | 'payload_too_large'
   | 'unsupported_media_type'
   | 'rate_limited'
-  | 'internal_error';
+  | 'internal_error'
+  /** The feature exists but this deployment has not configured it — no AI key. */
+  | 'not_implemented'
+  /** A service we depend on failed. Ours is fine; theirs is not. */
+  | 'bad_gateway';
 
 const STATUS_BY_CODE: Record<ErrorCode, number> = {
   bad_request: 400,
@@ -29,6 +33,8 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   unsupported_media_type: 415,
   rate_limited: 429,
   internal_error: 500,
+  not_implemented: 501,
+  bad_gateway: 502,
 };
 
 export class AppError extends Error {
@@ -58,6 +64,9 @@ export const badRequest = (message = 'Malformed request.') => new AppError('bad_
 export const unauthorized = (message = 'You need to sign in to do that.') =>
   new AppError('unauthorized', message);
 
+export const forbidden = (message = 'You do not have permission to do that.') =>
+  new AppError('forbidden', message);
+
 export const notFound = (message = 'Not found.') => new AppError('not_found', message);
 
 export const conflict = (message: string, fieldErrors?: Record<string, string>) =>
@@ -65,6 +74,18 @@ export const conflict = (message: string, fieldErrors?: Record<string, string>) 
 
 export const validationFailed = (fieldErrors: Record<string, string>, message = 'Please check the highlighted fields.') =>
   new AppError('validation_failed', message, { fieldErrors });
+
+/**
+ * The feature is built, but this workspace has not switched it on.
+ *
+ * Distinguished from 403 on purpose: 403 means "not allowed", which would send an
+ * owner looking for a permission they do not need. 501 means "nobody configured
+ * an API key", which is a settings problem.
+ */
+export const notImplemented = (message: string) => new AppError('not_implemented', message);
+
+/** A dependency failed. Never carries the upstream detail — that goes to the logs. */
+export const badGateway = (message: string) => new AppError('bad_gateway', message);
 
 export const rateLimited = (retryAfter: number) =>
   new AppError('rate_limited', 'Too many attempts. Please wait a moment and try again.', {

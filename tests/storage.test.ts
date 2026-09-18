@@ -1,158 +1,110 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-
 import { describe, expect, it } from 'vitest';
 
-import { buildImageKey, isValidImageKey } from '@/lib/storage/driver';
-import { createLocalDriver } from '@/lib/storage/local';
-import { extensionFor, sniffImageType } from '@/lib/storage/sniff';
+import { MAX_UPLOAD_BYTES, sniffImage, storageKeyFor } from '@/lib/storage/contract';
 
-const bytes = (...values: number[]) => new Uint8Array(values);
+/**
+ * What a file is, and where it is allowed to go.
+ *
+ * Both answers are taken away from the client on purpose. The type comes from the
+ * bytes, not from the name or the declared `Content-Type`; the path comes from us,
+ * not from the filename. Those two decisions are the whole security surface of an
+ * upload feature, so they are tested directly rather than through a route.
+ */
 
-describe('sniffImageType', () => {
-  it('identifies JPEG, PNG and WebP by signature', () => {
-    expect(sniffImageType(bytes(0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10))).toBe('image/jpeg');
-    expect(sniffImageType(bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a))).toBe('image/png');
-    expect(
-      sniffImageType(
-        bytes(0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50),
-      ),
-    ).toBe('image/webp');
+/** Minimal headers, long enough to pass the 12-byte floor. */
+const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0]);
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+const WEBP = new Uint8Array([
+  0x52, 0x49, 0x46, 0x46, 0x24, 0, 0, 0, 0x57, 0x45, 0x42, 0x50,
+]);
+const HEIC = new Uint8Array([
+  0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63,
+]);
+
+describe('sniffImage', () => {
+  it('recognises the formats a phone actually produces', () => {
+    expect(sniffImage(JPEG)).toEqual({ mime: 'image/jpeg', extension: 'jpg' });
+    expect(sniffImage(PNG)).toEqual({ mime: 'image/png', extension: 'png' });
+    expect(sniffImage(WEBP)).toEqual({ mime: 'image/webp', extension: 'webp' });
+    // An iPhone shoots HEIC unless told otherwise; refusing it would reject the
+    // most common camera on a job site.
+    expect(sniffImage(HEIC)).toEqual({ mime: 'image/heic', extension: 'heic' });
   });
 
-  it('rejects SVG — a document format that can carry script', () => {
-    const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>');
-    expect(sniffImageType(svg)).toBeNull();
+  it('refuses HTML, whatever it is called or claims to be', () => {
+    /*
+     * The case this exists for. A file named `before.jpg`, announced as
+     * `image/jpeg`, containing a script — stored, then served back from our own
+     * origin. Neither the name nor the header is consulted here, so neither helps.
+     */
+    const html = new TextEncoder().encode('<html><script>alert(1)</script></html>');
+    expect(sniffImage(html)).toBeNull();
   });
 
-  it('rejects HTML dressed up as an image', () => {
-    const html = new TextEncoder().encode('<!doctype html><script>alert(1)</script>');
-    expect(sniffImageType(html)).toBeNull();
+  it('refuses an SVG, which is a document that renders as an image', () => {
+    // SVG is the trap in any "it's just an image" allow-list: it can carry script
+    // and is not on the list of signatures, so it falls through to null.
+    const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+    expect(sniffImage(svg)).toBeNull();
   });
 
-  it('rejects a RIFF container that is not WebP', () => {
-    // A WAV file: "RIFF" then "WAVE". Checking only the RIFF prefix would pass it.
-    const wav = bytes(0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45);
-    expect(sniffImageType(wav)).toBeNull();
-  });
-
-  it('rejects empty, tiny and arbitrary input without throwing', () => {
-    expect(sniffImageType(new Uint8Array())).toBeNull();
-    expect(sniffImageType(bytes(0xff))).toBeNull();
-    expect(sniffImageType(bytes(1, 2, 3, 4, 5, 6, 7, 8))).toBeNull();
-  });
-
-  it('does not accept a truncated PNG signature', () => {
-    expect(sniffImageType(bytes(0x89, 0x50, 0x4e, 0x47))).toBeNull();
-  });
-});
-
-describe('extensionFor', () => {
-  it('maps each accepted type to an extension', () => {
-    expect(extensionFor('image/jpeg')).toBe('jpg');
-    expect(extensionFor('image/png')).toBe('png');
-    expect(extensionFor('image/webp')).toBe('webp');
-  });
-});
-
-describe('buildImageKey', () => {
-  it('scopes the key to the user and makes it unguessable', () => {
-    const key = buildImageKey('user_abc123', 'image/jpeg');
-    expect(key).toMatch(/^receipts\/user_abc123\/[0-9a-f-]{36}\.jpg$/);
-    expect(isValidImageKey(key)).toBe(true);
-  });
-
-  it('never produces the same key twice', () => {
-    const keys = new Set(Array.from({ length: 50 }, () => buildImageKey('u1', 'image/png')));
-    expect(keys.size).toBe(50);
-  });
-});
-
-describe('isValidImageKey', () => {
-  it('accepts the shape we generate', () => {
-    expect(isValidImageKey('receipts/u1/0d1e2f30-4a5b-6c7d-8e9f-a0b1c2d3e4f5.jpg')).toBe(true);
-  });
-
-  it('rejects traversal, absolute paths and null bytes', () => {
-    expect(isValidImageKey('receipts/u1/../../../etc/passwd')).toBe(false);
-    expect(isValidImageKey('../../etc/passwd')).toBe(false);
-    expect(isValidImageKey('/etc/passwd')).toBe(false);
-    expect(isValidImageKey('receipts/u1/a.jpg\0.png')).toBe(false);
-  });
-
-  it('rejects anything outside the receipts prefix or with a foreign extension', () => {
-    expect(isValidImageKey('secrets/u1/a.jpg')).toBe(false);
-    expect(isValidImageKey('receipts/u1/a.svg')).toBe(false);
-    expect(isValidImageKey('receipts/u1/a.html')).toBe(false);
-    expect(isValidImageKey('receipts/u1/a')).toBe(false);
-    expect(isValidImageKey('')).toBe(false);
-  });
-});
-
-describe('createLocalDriver', () => {
-  async function driverInTempDir() {
-    const root = await mkdtemp(path.join(tmpdir(), 'nes-storage-'));
-    return { root, driver: createLocalDriver(root) };
-  }
-
-  it('round-trips an image', async () => {
-    const { driver } = await driverInTempDir();
-    const key = buildImageKey('u1', 'image/jpeg');
-    const data = bytes(0xff, 0xd8, 0xff, 0x01, 0x02);
-
-    await driver.put(key, data, 'image/jpeg');
-    expect(await driver.get(key)).toEqual(data);
-  });
-
-  it('returns null for a key that was never written', async () => {
-    const { driver } = await driverInTempDir();
-    expect(await driver.get(buildImageKey('u1', 'image/jpeg'))).toBeNull();
-  });
-
-  it('writes inside the root, in a per-user directory', async () => {
-    const { root, driver } = await driverInTempDir();
-    const key = buildImageKey('u1', 'image/png');
-    await driver.put(key, bytes(0x89, 0x50), 'image/png');
-
-    // Readable at the expected absolute path, and nowhere else.
-    await expect(readFile(path.join(root, key))).resolves.toBeDefined();
-  });
-
-  it('refuses to read or write outside the storage root', async () => {
-    const { driver } = await driverInTempDir();
-
-    for (const key of ['../escape.jpg', 'receipts/u1/../../escape.jpg', '/etc/passwd']) {
-      await expect(driver.put(key, bytes(0xff, 0xd8, 0xff), 'image/jpeg')).rejects.toThrow();
-      await expect(driver.get(key)).rejects.toThrow();
-      await expect(driver.delete(key)).rejects.toThrow();
+  it('refuses a PDF, a ZIP and an ELF binary', () => {
+    for (const header of [
+      [0x25, 0x50, 0x44, 0x46], // %PDF
+      [0x50, 0x4b, 0x03, 0x04], // PK..
+      [0x7f, 0x45, 0x4c, 0x46], // .ELF
+    ]) {
+      const bytes = new Uint8Array(16);
+      bytes.set(header);
+      expect(sniffImage(bytes)).toBeNull();
     }
   });
 
-  it('does not overwrite an existing object', async () => {
-    const { driver } = await driverInTempDir();
-    const key = buildImageKey('u1', 'image/jpeg');
-    await driver.put(key, bytes(1, 2, 3), 'image/jpeg');
-    // Keys are random, so a collision means something is badly wrong; failing
-    // loudly beats silently replacing someone's receipt.
-    await expect(driver.put(key, bytes(4, 5, 6), 'image/jpeg')).rejects.toThrow();
+  it('refuses something too short to identify rather than guessing', () => {
+    expect(sniffImage(new Uint8Array([0xff, 0xd8, 0xff]))).toBeNull();
+    expect(sniffImage(new Uint8Array())).toBeNull();
   });
 
-  it('deletes, and deleting twice still succeeds', async () => {
-    const { driver } = await driverInTempDir();
-    const key = buildImageKey('u1', 'image/jpeg');
-    await driver.put(key, bytes(0xff, 0xd8, 0xff), 'image/jpeg');
+  it('refuses a file whose header appears later than the start', () => {
+    // Prefixing a JPEG signature with padding is the obvious way to try to smuggle
+    // one past a naive `includes`-style check.
+    const shifted = new Uint8Array(16);
+    shifted.set([0x00, 0x00, 0xff, 0xd8, 0xff]);
+    expect(sniffImage(shifted)).toBeNull();
+  });
+});
 
-    await driver.delete(key);
-    expect(await driver.get(key)).toBeNull();
-    await expect(driver.delete(key)).resolves.toBeUndefined();
+describe('storageKeyFor', () => {
+  it('puts the organization first, so a key is greppable back to its owner', () => {
+    expect(storageKeyFor('org_alpha', 'jpg').startsWith('org_alpha/')).toBe(true);
   });
 
-  it('cannot be tricked into reading a file placed just outside the root', async () => {
-    const { root, driver } = await driverInTempDir();
-    const secret = path.join(path.dirname(root), 'secret.jpg');
-    await writeFile(secret, 'top secret');
+  it('never repeats a key', () => {
+    const keys = new Set(Array.from({ length: 500 }, () => storageKeyFor('org_alpha', 'jpg')));
+    expect(keys.size).toBe(500);
+  });
 
-    await expect(driver.get(`../${path.basename(secret)}`)).rejects.toThrow();
+  it('contains nothing that could climb out of its prefix', () => {
+    const key = storageKeyFor('org_alpha', 'jpg');
+    expect(key).not.toContain('..');
+    expect(key).toMatch(/^[\w-]+\/\d{4}-\d{2}\/[0-9a-f]{32}\.jpg$/);
+  });
+
+  it('takes the extension from the sniffed type, not from any filename', () => {
+    // The call site passes `sniffImage(...).extension`. Proving the shape here
+    // documents that a `.php` or `.html` cannot arrive through this argument in
+    // practice, because nothing produces those.
+    const key = storageKeyFor('org_alpha', sniffImage(PNG)!.extension);
+    expect(key.endsWith('.png')).toBe(true);
+  });
+});
+
+describe('the upload cap', () => {
+  it('sits below the platform request limit it has to fit inside', () => {
+    // Vercel refuses a serverless request body over ~4.5 MB, and uploads are
+    // proxied through the application rather than sent straight to the bucket.
+    expect(MAX_UPLOAD_BYTES).toBeLessThan(4.5 * 1024 * 1024);
+    // …and is still big enough for a phone photo, which is 1–3 MB.
+    expect(MAX_UPLOAD_BYTES).toBeGreaterThanOrEqual(4 * 1024 * 1024);
   });
 });

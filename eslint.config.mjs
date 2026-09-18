@@ -7,7 +7,7 @@ import nextTypescript from 'eslint-config-next/typescript';
  */
 const config = [
   {
-    ignores: ['.next/**', 'node_modules/**', 'public/ocr/**', 'next-env.d.ts', 'prisma/*.db'],
+    ignores: ['.next/**', 'node_modules/**', 'next-env.d.ts', 'src/generated/**'],
   },
   ...coreWebVitals,
   ...nextTypescript,

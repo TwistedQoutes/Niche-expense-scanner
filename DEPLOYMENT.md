@@ -1,9 +1,14 @@
 # Going live
 
-Everything in this file is an account you have to create yourself — I cannot do
-these parts for you. Budget **90 minutes** the first time.
+Every account below is one you have to create yourself. Budget **90 minutes** the
+first time, most of it waiting on DNS and Twilio.
 
-Work top to bottom; each step depends on the one before it.
+Work top to bottom. Steps 1–4 get you a working product; 5–8 turn on the features
+that cost money, and each one can be skipped and added later. That is a property
+of the code, not a promise about the order: **every integration is independently
+switchable and none of them gates the core.** With nothing but a database, leads,
+the pipeline, customers, quotes, the public quote page, scheduling, jobs and
+analytics all work. What you lose without each key is named in step 5 onward.
 
 ---
 
@@ -11,206 +16,334 @@ Work top to bottom; each step depends on the one before it.
 
 | What | Cost | Why |
 | --- | --- | --- |
-| A domain | ~$12/year | You are asking people for card details. A `.vercel.app` address undermines that. |
-| Netlify **or** Vercel account | Free to start | Hosting. Both work; the repo has `netlify.toml` committed and Vercel ignores it. |
-| Neon or Supabase account | Free tier is enough to launch | Postgres. |
-| Stripe account | 2.9% + 30¢ per charge | Payments. |
-| Resend account | Free to 3,000 emails/month | Password resets. |
+| A domain | ~$12/year | You are asking people for card details, and sending quote links by text. A `.vercel.app` address undermines both. |
+| Vercel account | Free to start | Hosting, and the cron scheduler the automation worker needs. `netlify.toml` is committed too if you prefer Netlify — but Netlify has no equivalent of `vercel.json` crons, so you would schedule step 7 elsewhere. |
+| Neon or Supabase | Free tier launches this | Postgres. Both are ordinary Postgres — nothing in the app is specific to either. |
+
+You do **not** need Stripe, Twilio, Resend, OpenAI or Google Maps to get to a
+working deployment. Skip to step 9 and come back.
 
 ---
 
-## 1. Database (10 min)
+## 1. The database
 
-1. Create a project at [neon.tech](https://neon.tech) (or Supabase).
-2. Copy the **pooled** connection string — Neon calls it the `-pooler` host,
-   Supabase uses port `6543`. This matters: serverless creates many short-lived
-   instances, and a direct connection limit is exhausted under mild load.
-3. Keep it for step 5.
+Create a Postgres database, **version 15 or newer**. Not 14: the tenant migration
+uses `ON DELETE SET NULL ("column")`, and that column-list form arrived in
+Postgres 15. Prisma emits the plain form, which nulls the whole composite key
+including `organizationId` — a NOT NULL column — so deleting a customer fails
+outright. On 14 the migration does not apply at all, which is at least a loud
+failure and at the right moment: before any data exists.
 
-Then apply the schema from your own machine:
+You need **two** connection strings from it, and the difference matters:
 
 ```bash
-DATABASE_URL="<your pooled connection string>" npx prisma migrate deploy
+# Pooled. The application uses this at request time. On Neon it is the URL
+# containing `-pooler`; on Supabase it is port 6543.
+DATABASE_URL="postgresql://…-pooler…/jobflow?sslmode=require"
+
+# Direct, unpooled. Migrations use this. On Neon, the same URL without
+# `-pooler`; on Supabase, port 5432.
+DIRECT_URL="postgresql://…/jobflow?sslmode=require"
 ```
 
-`migrate deploy` applies the committed migrations and never invents new ones —
-it is the only migration command that should ever run against production.
+Serverless runs many short-lived instances, and an unpooled URL exhausts a
+managed Postgres' connection limit long before the app is busy — hence the pooled
+one for requests. But `prisma migrate` takes advisory locks and runs DDL, and a
+transaction pooler can carry neither: through the pooler a migration either hangs
+or fails without mentioning pooling. Hence the direct one for migrations, which
+`prisma.config.ts` uses whenever `DIRECT_URL` is set.
 
-## 2. Email (10 min)
-
-1. Sign up at [resend.com](https://resend.com).
-2. Add your domain and complete the DNS records they give you. **Do not skip
-   this** — sending from an unverified domain lands password resets in spam,
-   and a password reset that does not arrive is an account you have lost.
-3. Create an API key.
-
-## 3. Stripe (20 min)
-
-1. In the Stripe dashboard, create a **Product** — "Niche Expense Scanner" —
-   with a **recurring monthly Price**. Copy the price id (`price_...`).
-2. Copy your **secret key** (`sk_live_...`). Use test keys (`sk_test_...`)
-   until you have run a real checkout through.
-3. Enable **Stripe Tax** under Settings → Tax. SaaS is taxable in many US
-   states and across the EU; switching this on now is far cheaper than
-   reconstructing what was owed later.
-4. Activate the **Customer Portal** under Settings → Billing → Customer portal,
-   and allow cancellation. The app links to it; without it, subscribers have to
-   email you to cancel, which is a consumer-protection problem in several
-   jurisdictions.
-5. Leave the webhook until step 6 — it needs your live URL.
-
-## 4. Deploy (15 min)
-
-**The build needs no secrets.** It compiles code and never opens a database
-connection, so it succeeds on a brand-new site before any environment variable
-is set. Deploy first, configure second — the reverse order is impossible, and
-an earlier version of this app got it wrong.
-
-### Netlify
-
-1. Add new site → Import an existing project → pick this repository.
-2. Leave the build settings alone: `netlify.toml` in the repo already sets the
-   build command, the publish directory, the Next.js runtime plugin, and
-   `NODE_VERSION = 22` (this project needs 22.12+, and Netlify's default is
-   older).
-3. Add your domain under Domain management.
-
-### Vercel
-
-1. Import the repository at [vercel.com/new](https://vercel.com/new).
-2. Framework preset: **Next.js**. No changes needed.
-3. Add your domain under the project's Domains tab.
-
-## 5. Environment variables (10 min)
-
-Netlify: **Site configuration → Environment variables.**
-Vercel: **Settings → Environment Variables.**
-
-These are read when a request is served, not when the site is built — so add
-them and redeploy.
-
-```
-DATABASE_URL          <pooled connection string from step 1>
-AUTH_SECRET           <run: openssl rand -base64 48>
-APP_URL               https://yourdomain.com
-EMAIL_DRIVER          resend
-RESEND_API_KEY        <from step 2>
-EMAIL_FROM            Niche Expense Scanner <hello@yourdomain.com>
-STRIPE_SECRET_KEY     <from step 3>
-STRIPE_PRICE_ID       <from step 3>
-STRIPE_WEBHOOK_SECRET <filled in at step 6>
-TRIAL_DAYS            14
-PRICE_LABEL           $7/month
-SUPPORT_EMAIL         <an address you actually read>
-```
-
-`AUTH_SECRET` must be genuinely random and must never change after launch —
-rotating it signs out every user at once.
-
-Leave `RECEIPT_STORAGE_DRIVER` unset. The local driver writes to disk, and both
-Netlify's and Vercel's filesystems are ephemeral, so images would vanish between
-requests. See "Receipt images" below.
-
-## 6. Stripe webhook (10 min)
-
-1. Stripe → Developers → Webhooks → **Add endpoint**.
-2. URL: `https://yourdomain.com/api/webhooks/stripe`
-3. Events: `checkout.session.completed`, `customer.subscription.created`,
-   `customer.subscription.updated`, `customer.subscription.deleted`,
-   `invoice.payment_failed`
-4. Copy the **signing secret** (`whsec_...`) into `STRIPE_WEBHOOK_SECRET` and
-   redeploy.
-
-The webhook is the only thing that grants paid access. If it is missing or
-misconfigured, customers will be charged and stay locked out — so verify it:
-Stripe's dashboard shows delivery attempts and responses for every event.
-
-## 7. Before you take the first real payment (15 min)
-
-Run through this yourself, on the live site, with Stripe in **test mode** and
-card `4242 4242 4242 4242`:
-
-- [ ] Sign up. The confirmation email **arrives** (check spam).
-- [ ] Log an expense by scanning a real receipt.
-- [ ] Sign out, use "Forgot your password?", and get back in from the email.
-- [ ] Subscribe through checkout. Settings shows "Subscribed" **within a few
-      seconds** — if it does not, the webhook is wrong; fix it before going live.
-- [ ] Open the billing portal and confirm you can cancel.
-- [ ] Export the CSV and open it in a spreadsheet.
-- [ ] Read `/legal/terms` and `/legal/privacy` and make them true — see below.
-- [ ] Switch Stripe to live keys and redeploy.
-
-## 8. Backups (5 min)
-
-Turn on automated backups with your database provider, and **restore one into a
-scratch database once** to prove it works. You are holding people's tax
-substantiation; an untested backup is not a backup.
-
----
-
-## The legal documents
-
-`/legal/terms` and `/legal/privacy` are drafted and honest about what this code
-actually does, but **they have not been reviewed by a lawyer.** Before charging:
-
-- Set `SUPPORT_EMAIL` to a real, monitored address.
-- Add your legal or trading name and country.
-- If you will have EU or UK customers, have both documents reviewed. GDPR
-  brings obligations — a data processing agreement with your suppliers, a
-  lawful basis for each purpose, breach notification timelines — that generic
-  templates handle badly.
-
-The privacy policy already discloses the one thing most templates would miss:
-if an artist enables receipt image retention, the stored photograph may contain
-a *third party's* details, such as a client's name on a deposit slip.
-
-## Receipt images in production
-
-The bundled `local` driver needs a persistent disk and will not work on Netlify
-or Vercel.
-To offer image retention, implement the three-method `StorageDriver` contract in
-`src/lib/storage/driver.ts` against S3 or Cloudflare R2 and return it from
-`resolveStorage()`. No call site changes. Until then leave the driver unset:
-the app works fully, the feature is simply absent, and the UI says so honestly.
-
-## What is deliberately still missing
-
-Being straight about the edges, so nothing surprises you later:
-
-- **No error tracking.** Unhandled errors log an incident id to the server
-  console and nowhere else. Add Sentry early — it is a ten-minute job and it is
-  how you find out about breakage before a customer emails.
-- **Rate limiting is per-instance.** In memory, so with several serverless
-  instances the effective limits are multiplied. Fine at launch; move
-  `enforceRateLimit` onto Redis before you have real traffic.
-- **`'unsafe-inline'` in the script CSP**, required by Next's runtime. Moving to
-  per-request nonces is the hardening step.
-- **No admin view.** You will be reading the database directly for support.
-
----
-
-## If the build fails
-
-The build deliberately requires **no** environment variables, so a build failure
-is almost never about missing configuration. In order of likelihood:
-
-**"Cannot find module" or an engine warning during install.** The Node version
-is too old. `netlify.toml` pins `NODE_VERSION = "22"`; on Vercel set the Node
-version to 22.x in Project Settings. The project needs 22.12+.
-
-**The site builds but every page 500s.** That *is* configuration: the app is
-running without `DATABASE_URL` or `AUTH_SECRET`. Check `/api/health` — it
-answers `{"status":"degraded","database":"down"}` with a 503 when the database
-is unreachable, and the server log names the missing variable exactly.
-
-**Migrations have not run.** The build does not touch your database. Apply the
-schema once, from your own machine:
+## 2. A session secret
 
 ```bash
-DATABASE_URL="<your pooled connection string>" npx prisma migrate deploy
+openssl rand -base64 48
 ```
 
-**Checkout works but the account stays on "trial".** The webhook is not
-reaching you. Stripe → Developers → Webhooks shows every delivery attempt and
-the response it got; a 404 there means the URL is wrong, a 400 means the
-signing secret does not match.
+Set it as `AUTH_SECRET`. Rotating it signs everyone out, which is the intended way
+to revoke every session at once after a compromise.
+
+## 3. Deploy
+
+1. Push the repository and import it in Vercel — this link opens the import with
+   the repository already chosen:
+   <https://vercel.com/new/import?s=https://github.com/TwistedQoutes/Niche-expense-scanner>
+
+   Set the production branch to the one you want deployed (`main`). The app **is**
+   the repository root, so leave Root Directory alone. (It lived in a `jobflow/` subdirectory
+   until it was promoted — if an earlier deploy set that, clear it.)
+2. Add `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, and:
+   ```bash
+   APP_URL="https://yourdomain.com"
+   ```
+   `APP_URL` must be your real domain. Quote links, review links and password
+   resets are absolute URLs built from it, and a background job has no incoming
+   request to infer a host from. Get this wrong and quote links point at the wrong
+   place — or at `localhost`.
+3. Deploy. The build runs `prisma generate && next build` and **never connects to
+   the database**, so it succeeds before any of this is correct. That is
+   deliberate: you cannot set production secrets on a deploy that has never built.
+
+## 3a. Or let the script do 3 to 5
+
+Steps 3 through 5 are mechanical, and mechanical steps done by hand are where
+deployments go wrong — a migration run against the pooled URL, a secret pasted
+with a trailing newline, `APP_URL` left pointing at localhost so every quote link
+a customer receives goes nowhere. One command instead:
+
+```bash
+./scripts/deploy.sh \
+  --database-url "postgresql://…-pooler…" \
+  --direct-url   "postgresql://…direct…"
+```
+
+It applies the migrations against the direct URL, refuses to continue unless the
+tenant boundary checks out, generates `AUTH_SECRET` and `CRON_SECRET` and hands
+them to Vercel without printing them, deploys, then — because a first deploy
+cannot know its own address — sets `APP_URL` to the URL Vercel just assigned and
+deploys again. Pass `--app-url https://yourdomain.com` if you already have the
+domain, and it skips that second pass. Re-running is safe.
+
+`--database-only` stops after the migrations, which is what you want when you are
+bringing a database up to date rather than shipping.
+
+With `VERCEL_TOKEN` set in the environment (and `VERCEL_SCOPE` for a team
+account) it runs with nobody at the keyboard — no prompts — which is what CI, or
+an agent running the deploy for you, needs. Set it as an environment variable
+rather than passing it as an argument: an argument is visible in `ps` and lands
+in your shell history.
+
+The rest of this document is the same work done by hand, and is what to read when
+a step fails.
+
+---
+
+## 4. Create the schema
+
+Against the **direct** URL, from your machine:
+
+```bash
+DIRECT_URL="<direct url>" npm run db:migrate:deploy
+```
+
+Then confirm the tenant boundary is intact in the database you just created:
+
+```bash
+DATABASE_URL="<direct url>" npm run db:check-constraints
+```
+
+That asserts all 25 relations between tenant-owned tables are composite foreign
+keys, that each `ON DELETE SET NULL` still names only its own column, and — by
+attempting one inside a transaction it rolls back — that Postgres refuses a
+cross-tenant reference. It should print `Tenant constraints OK`. If it does not,
+**stop**: multi-tenant isolation is the one property whose failure cannot be
+undone after the fact.
+
+You now have a working deployment. Sign up, and the rest is optional.
+
+---
+
+## 5. Email (Resend) — password resets
+
+Without this, `EMAIL_DRIVER` stays `none` and every message is printed to the
+server log instead of sent. Verification and password-reset emails never arrive,
+so **nobody who forgets their password can get back in**. The body is withheld in
+production (a reset link in a log stream is a credential), so you cannot recover
+one by reading the logs either.
+
+1. Create a Resend account and verify your sending domain — not just an address.
+2. ```bash
+   EMAIL_DRIVER="resend"
+   RESEND_API_KEY="re_…"
+   EMAIL_FROM="JobFlow AI <hello@yourdomain.com>"
+   ```
+   `EMAIL_FROM` must be on the verified domain or delivery fails.
+
+## 6. SMS (Twilio) — follow-ups, missed-call text back, the inbox
+
+Without this, nothing is texted: follow-up sequences, quote reminders, review
+requests and missed-call replies are all still recorded and threaded in the inbox
+as `QUEUED`, so the product visibly works, but no customer hears from you.
+
+1. Buy an SMS-capable number. In the US, register it for **10DLC** — unregistered
+   application-to-person traffic is filtered by carriers, and the failure looks
+   like silence rather than an error.
+2. ```bash
+   SMS_DRIVER="twilio"
+   TWILIO_ACCOUNT_SID="AC…"
+   TWILIO_AUTH_TOKEN="…"
+   TWILIO_PHONE_NUMBER="+15551234567"
+   ```
+3. In the number's settings, set **A message comes in** to
+   `https://yourdomain.com/api/webhooks/twilio` (POST). Inbound replies land in
+   the unified inbox, and a reply is what stops an automation sequence.
+4. If you are behind a proxy or tunnel, also set `TWILIO_WEBHOOK_URL` to the exact
+   URL you configured. Twilio signs **that URL**, so when the request's own host
+   differs, every legitimate webhook fails verification.
+
+## 7. The automation worker
+
+Follow-up sequences, quote reminders, review requests and the reactivation sweep
+all run from one endpoint. **Without `CRON_SECRET` it refuses to run at all** — an
+unauthenticated endpoint that sends SMS on demand is someone else's marketing
+budget spent from your account.
+
+```bash
+CRON_SECRET="$(openssl rand -hex 32)"
+```
+
+`vercel.json` already schedules both passes:
+
+| Path | Schedule | What it does |
+| --- | --- | --- |
+| `/api/cron/automations` | every minute | Runs due automation steps. This cadence is the worst case for "how late can a follow-up be". |
+| `/api/cron/automations?sweep=1` | `0 14 * * *` daily | Also runs the reactivation sweep and deletes expired demo workspaces. |
+
+**Check what your Vercel plan allows before the first deploy.** Vercel's free
+(Hobby) plan limits cron jobs to a small number, running once a day — a
+minute-by-minute schedule is a paid feature, and on Hobby the committed
+`vercel.json` will either be refused or quietly not run at that cadence, which
+looks exactly like follow-ups being broken. Two ways out, both fine:
+
+- Change the first schedule to something the plan allows (`0 * * * *` hourly, or
+  `0 13 * * *` daily). A follow-up arrives later; nothing else changes.
+- Leave `vercel.json` alone and schedule it somewhere else — any host with cron,
+  GitHub Actions, or a service like cron-job.org — pointing at the same endpoint
+  with the same bearer token. The endpoint does not care who calls it, only that
+  the secret matches.
+
+Vercel Cron sends `Authorization: Bearer <CRON_SECRET>` when that variable is set
+on the project; the endpoint also accepts `x-cron-secret`, and compares in
+constant time. Calling it by hand:
+
+```bash
+curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://yourdomain.com/api/cron/automations
+```
+
+## 8. Billing (Stripe)
+
+Leave `STRIPE_SECRET_KEY` unset to run without billing. Plan limits still apply —
+they come from the subscription row in the database, not from Stripe — so an
+unbilled deployment behaves as whatever plan you set on each workspace.
+
+1. Create a **recurring monthly Product and Price** for each paid tier. The code's
+   own figures are Starter **$49**, Pro **$99**, Business **$199** per month; if
+   you charge differently, change `monthlyPriceCents` in `src/lib/billing/plans.ts`
+   too, or the marketing page and the invoice will disagree.
+2. Copy the **price** ids (`price_…`, not `prod_…`):
+   ```bash
+   STRIPE_SECRET_KEY="sk_live_…"
+   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="pk_live_…"
+   STRIPE_PRICE_STARTER="price_…"
+   STRIPE_PRICE_PRO="price_…"
+   STRIPE_PRICE_BUSINESS="price_…"
+   ```
+   An unknown price id is never guessed at: a webhook naming a price you have not
+   configured leaves the plan alone rather than picking the nearest tier.
+3. Add the webhook endpoint `https://yourdomain.com/api/stripe/webhook`,
+   subscribed to exactly these events:
+
+   ```
+   checkout.session.completed
+   customer.subscription.created
+   customer.subscription.updated
+   customer.subscription.deleted
+   customer.subscription.paused
+   customer.subscription.resumed
+   invoice.paid
+   invoice.payment_succeeded
+   invoice.payment_failed
+   invoice.finalized
+   ```
+
+4. Set the endpoint's signing secret:
+   ```bash
+   STRIPE_WEBHOOK_SECRET="whsec_…"
+   ```
+   **Required whenever `STRIPE_SECRET_KEY` is set.** The webhook is the only thing
+   that grants a paid plan, so an unverified one is an endpoint anyone can use to
+   subscribe themselves for free. It fails closed: with no secret configured,
+   every webhook is rejected.
+
+## 9. Optional extras
+
+```bash
+# Lead scoring and message drafting. Without it those features report that they
+# are unavailable rather than guessing — and the quote calculator, which is the
+# thing that actually prices work, never used AI in the first place.
+AI_DRIVER="openai"
+OPENAI_API_KEY="sk-…"
+
+# Address suggestions as you type, and road distance for the travel line on a
+# quote. Enable Geocoding API, Distance Matrix API and Places API, then restrict
+# the key by IP. One key, never sent to the browser: the page asks our own
+# /api/maps/autocomplete, which needs a session and is rate-limited per
+# workspace. Unset, addresses are typed in full and mileage by hand.
+GOOGLE_MAPS_API_KEY=""
+
+# Days of full Pro access before a card is required. 0 disables the trial.
+TRIAL_DAYS="14"
+```
+
+**`DEMO_MODE` stays `off` in production unless you want it.** On, any visitor can
+create a seeded throwaway workspace with no account — an unauthenticated route
+that writes to your real database. A demo workspace can never reach a carrier,
+can never be subscribed to, and is deleted by the daily sweep, but it is still
+rows in the database you are paying for.
+
+---
+
+## Smoke test
+
+In order. Each step depends on the one before it, and the whole thing takes about
+ten minutes.
+
+- [ ] `curl https://yourdomain.com/api/health` returns `200`.
+- [ ] Sign up. You land on the four-question setup wizard, not an error.
+- [ ] Add a lead by hand. It appears at the **top** of the New column.
+- [ ] Add a service with a price, then build a quote from that lead.
+- [ ] Send the quote to **your own** phone or email.
+- [ ] Open the quote link **in a private window**, signed out. The public page must
+      render without a session — that is the whole point of it — and show your
+      business name.
+- [ ] Accept it. A job appears in the owner's Jobs list.
+- [ ] Schedule the job, then mark it complete. Completion is the transition that
+      must never apply twice.
+- [ ] Ask for a review. Open the `/r/…` link and confirm it redirects to the review
+      URL you set in Settings.
+- [ ] Text a reply to your Twilio number. It appears in the inbox within seconds.
+- [ ] Subscribe with a real card, then cancel in the billing portal. Check that
+      Billing reflects both.
+- [ ] **Isolation.** Sign up a second workspace in another browser profile, and try
+      to open a URL from the first — `/customers/<id>`, `/quotes/<id>`. Every one
+      must be a 404, not a 403 and not the record. This is the only item on this
+      list whose failure cannot be fixed after the fact.
+
+## When something is wrong
+
+| Symptom | Cause |
+| --- | --- |
+| Quote links point at `localhost` | `APP_URL` is unset or wrong. |
+| Nobody can reset a password | `EMAIL_DRIVER` is `none`, or `EMAIL_FROM` is not on the Resend-verified domain. The reset link is in no log — the body is withheld in production on purpose. Unconfigured, the screen says so rather than sending anyone to an inbox nothing was sent to. |
+| The first page load after a quiet spell is slow | A serverless database suspends when idle and takes a second or two to wake. The app retries a failed *connection* for up to eight seconds rather than showing an error, so this costs a slow request, not a broken one. |
+| Messages stay `QUEUED` forever | `SMS_DRIVER` is `none`, or Twilio credentials are wrong. The message is threaded either way, which is why the inbox looks healthy. |
+| Inbound texts never arrive | Twilio's webhook URL, or `TWILIO_WEBHOOK_URL` not matching the URL Twilio signs. |
+| Follow-ups never send | `CRON_SECRET` unset (the endpoint refuses), or the Vercel cron is not firing. |
+| A payment succeeds but the plan does not change | `STRIPE_WEBHOOK_SECRET` missing or wrong. Stripe's dashboard shows the delivery failures. |
+| Migrations hang or fail oddly | Running against the pooled URL. Use `DIRECT_URL`. |
+| `db:check-constraints` fails | A `prisma migrate dev` regenerated a foreign key and dropped its `SET NULL` column list. The error names the constraint; `prisma/schema.prisma` explains the repair. |
+
+## Operating notes
+
+- **Backups.** Neon and Supabase both do point-in-time recovery on paid tiers. The
+  free tiers do not. You are storing other people's customer lists.
+- **Scale to zero.** A free-tier database suspends after a few minutes idle. The
+  first request afterwards wakes it, and the app waits — retrying the connection,
+  never the statement, so a write cannot be applied twice. Nobody sees an error;
+  somebody sees a slow page. Keeping the cron on a short schedule also keeps the
+  database warm as a side effect.
+- **Rotating a secret.** `AUTH_SECRET` signs everyone out. Stripe and Twilio keys
+  can be swapped with no user-visible effect. Changing `CRON_SECRET` requires
+  updating it on the Vercel project too, or follow-ups silently stop.
+- **Migrations on every deploy.** `npm run db:migrate:deploy` is not part of the
+  build, deliberately — a build that migrates is a build that can destroy data on
+  a rollback. Run it yourself, against `DIRECT_URL`, when a deploy includes one.

@@ -1,19 +1,30 @@
-/** Skeleton shown while the first month is fetched on the server. */
+import { Skeleton, SkeletonRows } from '@/components/ui/Skeleton';
+
+/**
+ * Shown while the dashboard's queries run.
+ *
+ * Shaped like the real page rather than a spinner, so the layout does not jump
+ * when the numbers land.
+ */
 export default function DashboardLoading() {
   return (
-    <div className="animate-pulse space-y-5" aria-busy="true" aria-label="Loading expenses">
-      <div className="h-7 w-32 rounded-lg bg-zinc-200 dark:bg-zinc-800" />
-      <div className="flex gap-2">
-        {[0, 1, 2].map((index) => (
-          <div key={index} className="h-10 w-28 rounded-full bg-zinc-200 dark:bg-zinc-800" />
+    <div className="mx-auto max-w-6xl space-y-6 p-4 lg:p-6">
+      <Skeleton className="h-7 w-52" />
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        {Array.from({ length: 10 }, (_, index) => (
+          <Skeleton key={index} className="h-24 w-full rounded-2xl" />
         ))}
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        {[0, 1, 2, 3].map((index) => (
-          <div key={index} className="h-20 rounded-2xl bg-zinc-200 dark:bg-zinc-800" />
-        ))}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl bg-white ring-1 ring-slate-200/80 dark:bg-slate-900 dark:ring-slate-800">
+          <SkeletonRows rows={4} />
+        </div>
+        <div className="rounded-2xl bg-white ring-1 ring-slate-200/80 dark:bg-slate-900 dark:ring-slate-800">
+          <SkeletonRows rows={4} />
+        </div>
       </div>
-      <div className="h-64 rounded-2xl bg-zinc-200 dark:bg-zinc-800" />
     </div>
   );
 }

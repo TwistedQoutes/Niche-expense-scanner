@@ -1,25 +1,51 @@
 import { redirect } from 'next/navigation';
 
 import { BottomNav } from '@/components/layout/BottomNav';
+import { DemoBanner } from '@/components/layout/DemoBanner';
+import { Sidebar } from '@/components/layout/Sidebar';
 import { TopBar } from '@/components/layout/TopBar';
-import { getCurrentUser } from '@/lib/auth/current-user';
+import { hasRole, redirectForFailure, resolveAuth } from '@/lib/auth/context';
 
 /**
- * The authenticated shell.
+ * The signed-in shell.
  *
- * This is the real authorisation gate — the middleware only does a cheap cookie
- * presence check. Every page nested under this layout is guaranteed a verified
- * session and an existing user row.
+ * This is where authorisation actually happens for every application page.
+ * `src/proxy.ts` only checks that a cookie exists — it runs at the edge and
+ * cannot read the database — so the real decision is made here, once, in a
+ * server component that every page under (app) renders inside.
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser();
-  if (!user) redirect('/login');
+  const outcome = await resolveAuth();
+
+  if (!outcome.ok) {
+    // Not always /login. A cookie that is valid but no longer usable has to be
+    // cleared first, or the proxy sends them right back here — see
+    // redirectForFailure and src/app/api/auth/session-ended.
+    redirect(redirectForFailure(outcome.reason));
+  }
+
+  const auth = outcome.context;
 
   return (
-    <div className="min-h-dvh">
-      <TopBar user={user} />
-      {/* Bottom padding clears the fixed mobile nav. */}
-      <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-24 sm:pb-10">{children}</div>
+    <div className="flex min-h-dvh flex-col">
+      {auth.organization.isDemo ? <DemoBanner /> : null}
+
+      <TopBar
+        organizationName={auth.organization.name}
+        userName={auth.user.name}
+        userEmail={auth.user.email}
+      />
+
+      <div className="flex flex-1">
+        <Sidebar
+          canSeeAdminItems={hasRole(auth, 'ADMIN')}
+          isPlatformAdmin={auth.user.isPlatformAdmin}
+        />
+
+        {/* The bottom padding clears the mobile nav bar, which is fixed. */}
+        <main className="min-w-0 flex-1 pb-20 lg:pb-0">{children}</main>
+      </div>
+
       <BottomNav />
     </div>
   );

@@ -1,22 +1,21 @@
 import { withRoute } from '@/lib/api/handler';
-import { RATE_LIMITS, enforceRateLimit } from '@/lib/api/rate-limit';
 import { jsonOk } from '@/lib/api/response';
-import { requireUser } from '@/lib/auth/current-user';
+import { requireAuth } from '@/lib/auth/context';
 import { clearSessionCookie } from '@/lib/auth/session';
-import { prisma } from '@/lib/db';
+import { prisma } from '@/lib/db/client';
 
 export const runtime = 'nodejs';
 
 /**
- * Ends every session, on every device.
+ * Revokes every session this user has, on every device.
  *
- * Bumping `sessionVersion` invalidates all outstanding tokens at once — the
- * thing a self-contained JWT cannot otherwise do. Useful after using a shared
- * computer, or if a phone goes missing.
+ * Bumping `sessionVersion` is what makes a stateless JWT revocable: each
+ * request compares the version in the token against the one in the database
+ * (see requireAuth), and every token minted before this increment stops
+ * matching.
  */
 export const POST = withRoute(async () => {
-  const user = await requireUser();
-  enforceRateLimit(RATE_LIMITS.write, user.id);
+  const { user } = await requireAuth();
 
   await prisma.user.update({
     where: { id: user.id },
@@ -25,5 +24,5 @@ export const POST = withRoute(async () => {
 
   await clearSessionCookie();
 
-  return jsonOk({ ok: true });
+  return jsonOk({ ok: true, message: 'Signed out on every device.' });
 });
