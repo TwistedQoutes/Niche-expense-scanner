@@ -56,4 +56,24 @@ export const updateMemberSchema = z.object({
   role: inviteRoleSchema,
 });
 
+/**
+ * What the business pays somebody, per hour.
+ *
+ * Nullable on purpose: clearing a rate is a real act, and it means something
+ * different from setting it to zero. Null takes that person's hours back out of
+ * every job's cost; zero claims they work for nothing.
+ *
+ * The ceiling is high enough for any trade and low enough to catch the mistake
+ * this field invites — entering cents as dollars, which turns $22 into $2,200 an
+ * hour and makes every job look catastrophic.
+ */
+export const updateMemberPaySchema = z.object({
+  hourlyRateCents: z
+    .number()
+    .int('Use a whole number of cents.')
+    .min(0, 'Pay cannot be negative.')
+    .max(100_000, 'That is over $1,000 an hour — check the decimal point.')
+    .nullable(),
+});
+
 export { PASSWORD_MIN_LENGTH };

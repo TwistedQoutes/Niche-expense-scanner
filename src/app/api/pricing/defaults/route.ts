@@ -36,6 +36,8 @@ export const PATCH = withRoute(async (request) => {
       defaultMinimumJobCents: true,
       defaultOverheadCents: true,
       defaultTaxRateBps: true,
+      fuelPricePerGallonCents: true,
+      vehicleMpgMilli: true,
     },
   });
 

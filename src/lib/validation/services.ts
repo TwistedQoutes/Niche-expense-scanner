@@ -155,6 +155,25 @@ export const updatePricingDefaultsSchema = z
       .int('Use basis points — 825 for 8.25%.')
       .min(0, 'That cannot be negative.')
       .max(3000, 'A tax rate above 30% is almost certainly a typo.'),
+
+    /*
+     * What the driving costs, which is a different question from what travel is
+     * charged at. `defaultTravelFeeCents` is on the invoice; these two are what
+     * leaves the bank account, and the gap between them is where a long drive
+     * quietly eats a job.
+     *
+     * Nullable, because "not set" has to stay distinguishable from "free": a
+     * blank fuel price leaves fuel out of a job's cost and says so, while a zero
+     * would claim the truck runs on nothing.
+     */
+    fuelPricePerGallonCents: centsSchema.nullable(),
+    /** Thousandths of a mile per gallon: 18500 is 18.5. */
+    vehicleMpgMilli: z
+      .number()
+      .int('Use up to one decimal place.')
+      .min(1_000, 'A truck that does less than 1 mpg is a typo.')
+      .max(150_000, 'A truck that does more than 150 mpg is a typo.')
+      .nullable(),
   })
   .partial()
   .refine((value) => Object.keys(value).length > 0, 'Nothing to update.');

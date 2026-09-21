@@ -5,6 +5,7 @@ import { readJsonBody, withRoute } from '@/lib/api/handler';
 import { RATE_LIMITS, enforceRateLimit } from '@/lib/api/rate-limit';
 import { jsonOk, toFieldErrors } from '@/lib/api/response';
 import { requireAuth } from '@/lib/auth/context';
+import { destinationFor } from '@/lib/maps/drive';
 import { resolvePricing } from '@/lib/pricing/resolve';
 import { QUOTE_ROW_SELECT, effectiveStatus, getQuoteByIdOrPublicId } from '@/lib/quotes/repository';
 import { idSchema } from '@/lib/validation/common';
@@ -48,7 +49,9 @@ export const PATCH = withRoute(async (request, context: { params: Promise<{ id: 
 
   const existing = await auth.db.quote.findUnique({
     where: { id },
-    select: { id: true, status: true },
+    // The ids below are only for working out where the job is, so a reprice
+    // measures the same drive the original quote did.
+    select: { id: true, status: true, propertyId: true, customerId: true, leadId: true },
   });
   if (!existing) throw notFound('That quote does not exist.');
 
@@ -59,7 +62,11 @@ export const PATCH = withRoute(async (request, context: { params: Promise<{ id: 
   const { pricing, ...rest } = parsed.data;
 
   // Repricing rewrites the frozen figures, which is only safe on a draft.
-  const repriced = pricing ? await resolvePricing(auth, pricing) : null;
+  const repriced = pricing
+    ? await resolvePricing(auth, pricing, {
+        destination: await destinationFor(auth.db, existing),
+      })
+    : null;
 
   const quote = await auth.db.quote.update({
     where: { id },

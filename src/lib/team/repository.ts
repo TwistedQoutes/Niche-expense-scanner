@@ -41,7 +41,46 @@ export type TeamMember = {
   isSelf: boolean;
   /** Whether the viewer may change or remove this person. */
   manageable: boolean;
+  /**
+   * What the business pays this person an hour, or null.
+   *
+   * Null carries two meanings and the screen must not confuse them: nobody has
+   * set a rate, or the viewer is not allowed to know. `payVisible` separates
+   * them — a crew member sees their own pay and nobody else's, which is the
+   * whole rule this field exists to enforce.
+   */
+  hourlyRateCents: number | null;
+  payVisible: boolean;
+  /** Whether the viewer may set this person's rate. */
+  payEditable: boolean;
 };
+
+/**
+ * Who may see and set pay.
+ *
+ * Seeing: owners and admins see the whole payroll, because they are the people
+ * who run it; everybody else sees their own rate and nothing else. A crew member
+ * being able to look up what the rest of the crew earns is the kind of thing
+ * that ends up in an employment tribunal, and no part of this product needs it.
+ *
+ * Setting: the rank rule that governs roles, plus one deliberate exception —
+ * you may always set your own. An owner-operator costing their own hours is the
+ * common case, and `requireManageable` refuses self-action because *promoting
+ * yourself* is the danger there. Paying yourself is not privilege escalation.
+ */
+function canSeePay(viewer: { userId: string; role: Role }, targetUserId: string): boolean {
+  return (
+    viewer.role === Role.OWNER || viewer.role === Role.ADMIN || viewer.userId === targetUserId
+  );
+}
+
+function canSetPay(
+  viewer: { userId: string; role: Role },
+  target: { userId: string; role: Role },
+): boolean {
+  if (viewer.role !== Role.OWNER && viewer.role !== Role.ADMIN) return false;
+  return viewer.userId === target.userId || outranks(viewer.role, target.role);
+}
 
 export type PendingInvite = {
   id: string;
@@ -102,6 +141,7 @@ export async function listTeam(
         status: true,
         acceptedAt: true,
         createdAt: true,
+        hourlyRateCents: true,
         user: { select: { name: true, email: true } },
       },
       orderBy: { createdAt: 'asc' },
@@ -131,6 +171,11 @@ export async function listTeam(
       isSelf: membership.userId === viewer.userId,
       manageable:
         membership.userId !== viewer.userId && outranks(viewer.role, membership.role),
+      // Withheld here rather than hidden in the markup: a value that never
+      // leaves the server cannot be read out of a network tab.
+      hourlyRateCents: canSeePay(viewer, membership.userId) ? membership.hourlyRateCents : null,
+      payVisible: canSeePay(viewer, membership.userId),
+      payEditable: canSetPay(viewer, { userId: membership.userId, role: membership.role }),
     })),
     invites: invitations.map((invitation) => ({
       id: invitation.id,
@@ -480,6 +525,43 @@ export async function restoreMember(
  * themselves, and a business whose only owner is now STAFF has nobody who can put
  * it back — a locked door with the key on the inside.
  */
+/**
+ * Setting what somebody is paid.
+ *
+ * Deliberately not routed through `requireManageable`: that guard refuses any
+ * self-action, which is right for roles and wrong here. The rule instead is
+ * `canSetPay` — an owner or admin, acting on themselves or on somebody they
+ * outrank — so an owner-operator can cost their own hours while an admin still
+ * cannot quietly look up or rewrite the owner's pay.
+ *
+ * Null is a real value: it clears the rate and takes the labour line back out of
+ * every cost view, which is different from setting it to zero.
+ */
+export async function setMemberPayRate(
+  db: TenantClient,
+  actor: { userId: string; role: Role },
+  userId: string,
+  hourlyRateCents: number | null,
+): Promise<void> {
+  const membership = await db.membership.findFirst({
+    where: { userId },
+    select: { role: true },
+  });
+
+  // Scoped by the tenant client, so somebody else's teammate is simply not here.
+  if (!membership) throw notFound('That teammate does not exist.');
+
+  if (!canSetPay(actor, { userId, role: membership.role })) {
+    throw forbidden(
+      actor.role === Role.OWNER || actor.role === Role.ADMIN
+        ? `You cannot set the pay of someone who is ${roleLabel(membership.role)}.`
+        : 'Only an owner or admin can set pay rates.',
+    );
+  }
+
+  await db.membership.updateMany({ where: { userId }, data: { hourlyRateCents } });
+}
+
 async function requireManageable(
   db: TenantClient,
   actor: { userId: string; role: Role },

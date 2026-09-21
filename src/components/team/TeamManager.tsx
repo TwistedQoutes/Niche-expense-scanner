@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { SelectField, TextField } from '@/components/ui/Field';
 import { useToast } from '@/components/ui/Toast';
-import { apiRequest } from '@/lib/api-client';
+import { ApiError, apiRequest } from '@/lib/api-client';
+import { parseAmountToCents } from '@/lib/money';
 import type { PendingInvite, SeatUsage, TeamMember } from '@/lib/team/repository';
 
 const ROLE_LABEL: Record<Role, string> = {
@@ -50,6 +51,92 @@ export type TeamManagerProps = {
   emailConfigured: boolean;
   isDemo: boolean;
 };
+
+/**
+ * What this person is paid, inline on their row.
+ *
+ * Rendered at all only when the viewer may see it — owners and admins see the
+ * payroll, everybody else sees their own line and nothing where the others'
+ * would be. The server already withholds the number (see listTeam); this is the
+ * second half of the same rule, not the enforcement of it.
+ *
+ * Saved on blur rather than behind a Save button: it is one number on a row of
+ * many, and a button per row is a screen of buttons.
+ */
+function PayRate({ member }: { member: TeamMember }) {
+  const router = useRouter();
+  const toast = useToast();
+
+  const asText = member.hourlyRateCents === null ? '' : (member.hourlyRateCents / 100).toFixed(2);
+
+  const [value, setValue] = useState(asText);
+  const [saving, setSaving] = useState(false);
+
+  if (!member.payVisible) return null;
+
+  if (!member.payEditable) {
+    return (
+      <span className="tabular text-sm text-slate-500 dark:text-slate-400">
+        {member.hourlyRateCents === null ? 'No rate set' : `${asText}/hr`}
+      </span>
+    );
+  }
+
+  async function save() {
+    const trimmed = value.trim();
+    if (trimmed === asText.trim()) return;
+
+    // Blank clears the rate. That is different from zero, and the difference is
+    // the point: cleared takes their hours out of job costs, zero says they cost
+    // nothing.
+    const cents = trimmed === '' ? null : parseAmountToCents(trimmed);
+
+    if (trimmed !== '' && cents === null) {
+      toast.error('Enter an hourly rate like 22 or 22.50.');
+      setValue(asText);
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      await apiRequest(`/api/team/members/${member.userId}`, {
+        method: 'PATCH',
+        body: { hourlyRateCents: cents },
+      });
+
+      toast.success(cents === null ? 'Pay rate cleared.' : 'Pay rate saved.');
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : 'Could not save that rate.');
+      setValue(asText);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <label className="flex items-center gap-1">
+      <span className="sr-only">Hourly pay for {member.name ?? member.email}</span>
+      <span className="text-sm text-slate-400 dark:text-slate-500">$</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        placeholder="—"
+        aria-label={`Hourly pay for ${member.name ?? member.email}`}
+        disabled={saving}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={() => void save()}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur();
+        }}
+        className="tabular w-16 rounded-lg bg-slate-50 px-2 py-1 text-right text-sm text-slate-800 ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700"
+      />
+      <span className="text-xs text-slate-400 dark:text-slate-500">/hr</span>
+    </label>
+  );
+}
 
 export function TeamManager(props: TeamManagerProps) {
   const router = useRouter();
@@ -200,6 +287,8 @@ export function TeamManager(props: TeamManagerProps) {
                 </p>
                 <p className="truncate text-sm text-slate-500 dark:text-slate-400">{member.email}</p>
               </div>
+
+              <PayRate member={member} />
 
               <Badge tone={ROLE_TONE[member.role]}>{ROLE_LABEL[member.role]}</Badge>
 

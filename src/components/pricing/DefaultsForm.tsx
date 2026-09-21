@@ -29,6 +29,8 @@ export function DefaultsForm({
     defaultMinimumJobCents: number;
     defaultOverheadCents: number;
     defaultTaxRateBps: number;
+    fuelPricePerGallonCents: number | null;
+    vehicleMpgMilli: number | null;
   };
   canEdit: boolean;
 }) {
@@ -42,6 +44,13 @@ export function DefaultsForm({
     minimum: (defaults.defaultMinimumJobCents / 100).toFixed(2),
     overhead: (defaults.defaultOverheadCents / 100).toFixed(2),
     taxRate: String(defaults.defaultTaxRateBps / 100),
+    // Blank rather than zero when unset, because those mean different things
+    // here: nobody has said, versus the truck runs on nothing.
+    fuelPrice:
+      defaults.fuelPricePerGallonCents === null
+        ? ''
+        : (defaults.fuelPricePerGallonCents / 100).toFixed(2),
+    mpg: defaults.vehicleMpgMilli === null ? '' : String(defaults.vehicleMpgMilli / 1000),
   });
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -74,6 +83,24 @@ export function DefaultsForm({
       return;
     }
 
+    /*
+     * Blank stays null all the way to the database. A fuel price of zero would
+     * be counted as a real number and make every job look cheaper than it is;
+     * null means the cost view leaves fuel out and says why.
+     */
+    const fuelPrice = form.fuelPrice.trim() ? parseAmountToCents(form.fuelPrice) : null;
+    const mpgEntered = form.mpg.trim() ? Number.parseFloat(form.mpg) : null;
+
+    if (form.fuelPrice.trim() && fuelPrice === null) {
+      setFieldErrors({ fuelPrice: 'Enter a price like 3.89, or leave it blank.' });
+      return;
+    }
+
+    if (mpgEntered !== null && (!Number.isFinite(mpgEntered) || mpgEntered <= 0)) {
+      setFieldErrors({ mpg: 'Enter miles per gallon like 18.5, or leave it blank.' });
+      return;
+    }
+
     setSubmitting(true);
     setFieldErrors({});
 
@@ -87,6 +114,8 @@ export function DefaultsForm({
           defaultMinimumJobCents: minimum,
           defaultOverheadCents: overhead,
           defaultTaxRateBps: Math.round(taxRate * 100),
+          fuelPricePerGallonCents: fuelPrice,
+          vehicleMpgMilli: mpgEntered === null ? null : Math.round(mpgEntered * 1000),
         },
       });
 
@@ -169,6 +198,43 @@ export function DefaultsForm({
           onChange={(event) => set('taxRate', event.target.value)}
           error={fieldErrors.defaultTaxRateBps}
         />
+      </div>
+
+      <div className="space-y-3 border-t border-slate-100 pt-4 dark:border-slate-800">
+        <div>
+          <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            What the driving costs you
+          </h3>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            Not what you charge for travel — what leaves your bank account. These two
+            turn the miles on a job into the fuel bill on the job costs screen. Leave
+            them blank and fuel is left out rather than counted as free.
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <TextField
+            label="Fuel price / gallon"
+            inputMode="decimal"
+            placeholder="3.89"
+            hint="What you last paid at the pump"
+            disabled={!canEdit}
+            value={form.fuelPrice}
+            onChange={(event) => set('fuelPrice', event.target.value)}
+            error={fieldErrors.fuelPricePerGallonCents ?? fieldErrors.fuelPrice}
+          />
+
+          <TextField
+            label="Truck miles per gallon"
+            inputMode="decimal"
+            placeholder="18.5"
+            hint="Loaded, with the trailer on — not the sticker figure"
+            disabled={!canEdit}
+            value={form.mpg}
+            onChange={(event) => set('mpg', event.target.value)}
+            error={fieldErrors.vehicleMpgMilli ?? fieldErrors.mpg}
+          />
+        </div>
       </div>
 
       {canEdit ? (

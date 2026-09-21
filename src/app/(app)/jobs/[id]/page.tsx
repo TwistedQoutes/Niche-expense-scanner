@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { JobActions } from '@/components/jobs/JobActions';
+import { JobCostCard } from '@/components/jobs/JobCostCard';
 import { JobPhotos } from '@/components/jobs/JobPhotos';
 import { ScheduleForm } from '@/components/jobs/ScheduleForm';
 import {
@@ -17,6 +18,7 @@ import { Card, CardHeader } from '@/components/ui/Card';
 import { Role } from '@prisma/client';
 
 import { hasRole, requireAuth } from '@/lib/auth/context';
+import { jobCost, maySeeJobCosts } from '@/lib/costs/repository';
 import { listJobPhotos } from '@/lib/files/repository';
 import { MAX_UPLOAD_BYTES, storageEnabled } from '@/lib/storage';
 import {
@@ -48,6 +50,15 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   const appointment = job.appointments[0] ?? null;
 
   const photos = await listJobPhotos(auth.db, job.id);
+
+  /*
+   * What the job cost, for the people entitled to know.
+   *
+   * Not fetched at all for crew: the labour line is one person's wage, and the
+   * cheapest way to keep a payroll private is not to send it. See
+   * src/lib/costs/repository.ts.
+   */
+  const cost = maySeeJobCosts(auth.role) ? await jobCost(auth.db, auth.organization.id, job.id) : null;
 
   const teammates = await auth.db.membership.findMany({
     where: { status: 'ACTIVE' },
@@ -171,6 +182,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         </div>
 
         <div className="space-y-4">
+          {cost ? <JobCostCard cost={cost} currency={job.currency} /> : null}
+
           <Card>
             <CardHeader title="Move it on" />
             <div className="p-4 pt-0">

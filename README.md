@@ -959,6 +959,18 @@ sets either — an area on a property was measured by a person, or it is not the
 
 ### What it does instead
 
+**Travel distance on a quote, measured rather than typed.** When a quote is
+priced for a customer with an address, the road distance from the business's own
+address is measured and used as the travel line. The awkward customer forty
+minutes away stops being quoted as though they were round the corner, and nobody
+has to remember to press a button.
+
+It is measured once per property and cached, because Google bills per request and
+a road does not move between quotes. The origin is stored beside it: move the
+shop and the next quote re-measures instead of quietly carrying the old number
+forward. A figure the owner typed always wins, and when the measurement cannot be
+made — no key, no address, no answer — the quote prices exactly as it did before.
+
 **Address suggestions.** The property address field on a new lead, and the
 business address in Settings, suggest as you type: pick one and the city, state
 and ZIP underneath fill themselves in. Those are the three fields that get
@@ -1590,7 +1602,7 @@ To rotate all sessions at once, change `AUTH_SECRET` and redeploy.
 npm test
 ```
 
-555 tests covering tenant isolation, session tokens and revocation, the
+599 tests covering tenant isolation, session tokens and revocation, the
 redirect-loop regression, the AI guardrails and their false-positive behaviour,
 AI absence and bounded failure, quote expiry and response gating, public-id
 entropy, document numbering under a race, the pricing engine (including the
@@ -1620,6 +1632,32 @@ rather than against our reading of it.
 `tests/scheduling-time.test.ts` earns its place for a duller reason: an hour is a
 small error that produces a crew at the wrong house, and the only way to be sure is
 to round-trip every hour across the two days a year the arithmetic is hard.
+
+### What a job cost
+
+Pricing answers "what should we charge?". The job page answers the question an
+owner asks on Friday, which is a different one: **was that job worth doing?**
+
+Four numbers, three of which the app already had — what the customer was charged,
+when the job started and finished, and how far the property is. The fourth is
+what the business *pays*: an hourly rate per person in Team, and a fuel price and
+miles-per-gallon in Pricing. From those it shows time on the job, time in the
+truck, fuel, and what is left.
+
+Two decisions in there are load-bearing:
+
+- **Drive time is labour.** The crew is paid for the hour in the truck the same
+  as the hour behind a mower. Leaving it out is the difference between "that
+  forty-minute-away mow made $17" and the truth, which is that it lost $11.81 —
+  and that job is the entire reason the screen exists.
+- **A missing number is never a zero.** No pay rate set, no hours recorded, no
+  measured drive: each is named on the screen and the total is labelled partial.
+  An unpriced hour counted as free makes every job look good, and an owner who
+  drops a customer on the strength of that has been misled by their own software.
+
+Pay is visible to owners and admins, and to the person it belongs to — never to
+the rest of the crew, since a one-person job's labour line *is* that person's
+wage. The server withholds it rather than the screen hiding it.
 
 ### End to end
 

@@ -289,6 +289,22 @@ model Organization {
   /// Sales tax applied to quotes, in basis points. 0 for services that are not taxed.
   defaultTaxRateBps      Int @default(0)
 
+  // --- What the work costs the business, as opposed to what it charges ------
+  //
+  // Easy to confuse with the pricing defaults above, and never the same number:
+  // `defaultLaborRateCents` is what a customer is *charged* for an hour, while a
+  // crew member's `hourlyRateCents` is what the business *pays* for it. The
+  // profit on a job lives in the gap between them.
+
+  /// Pump price, per gallon. Null until somebody fills it in — fuel is then left
+  /// out of a job's cost rather than counted as zero, because a cost of zero
+  /// reads as profit that is not there.
+  fuelPricePerGallonCents Int?
+  /// Miles per gallon, in thousandths: 18500 is 18.5 mpg. An integer for the
+  /// same reason money is — a truck's economy should not drift with floating
+  /// point, and the form that collects it accepts one decimal place.
+  vehicleMpgMilli         Int?
+
   status      OrganizationStatus @default(ACTIVE)
   onboardedAt DateTime?
   /// Marks the seeded sample workspace so the demo can be reset and so it can be
@@ -374,6 +390,18 @@ model Membership {
 
   role   Role             @default(STAFF)
   status MembershipStatus @default(ACTIVE)
+
+  /// What the business pays this person for an hour of work.
+  ///
+  /// On the membership rather than the user: one person can work for two
+  /// businesses at two rates, and neither should be able to read the other's.
+  /// Null means nobody has said, and labour is then left out of a job's cost
+  /// rather than counted as free.
+  ///
+  /// Every read of this column is guarded. Pay is visible to owners and admins,
+  /// and to the person it belongs to; a crew member must not be able to look up
+  /// what the rest of the crew earns.
+  hourlyRateCents Int?
 
   /// Set when an owner invites a teammate who has not accepted yet.
   invitedAt  DateTime?
@@ -605,17 +633,16 @@ model Customer {
   conversations  Conversation[]
   reviewRequests ReviewRequest[]
 
-  @@index([organizationId, createdAt])
-  @@index([organizationId, lastName])
-  @@index([organizationId, email])
-  @@index([organizationId, phone])
-  @@index([organizationId, nextServiceDueAt])
   /// The target of a composite foreign key. Children reference
   /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
   /// that points at another business's record — see the note at the top of this
   /// file. Prisma requires the referenced pair to be unique.
   @@unique([organizationId, id])
-
+  @@index([organizationId, createdAt])
+  @@index([organizationId, lastName])
+  @@index([organizationId, email])
+  @@index([organizationId, phone])
+  @@index([organizationId, nextServiceDueAt])
   @@map("customers")
 }
 
@@ -658,6 +685,20 @@ model Property {
   accessNotes String?
   gateCode    String?
 
+  // --- The drive from the shop to here, measured once ----------------------
+  //
+  // Road distance is billed per request and does not change between quotes, so
+  // it is measured the first time a property is priced and kept. The origin is
+  // stored beside it: move the business and every cached drive is wrong, and
+  // comparing against the current address is how that gets noticed rather than
+  // quietly carried forward into every quote.
+
+  driveMilesFromBase   Int?
+  driveMinutesFromBase Int?
+  /// The business address the measurement was taken from.
+  driveMeasuredFrom    String?
+  driveMeasuredAt      DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -665,14 +706,13 @@ model Property {
   quotes Quote[]
   jobs   Job[]
 
-  @@index([organizationId, customerId])
-  @@index([organizationId, postalCode])
   /// The target of a composite foreign key. Children reference
   /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
   /// that points at another business's record — see the note at the top of this
   /// file. Prisma requires the referenced pair to be unique.
   @@unique([organizationId, id])
-
+  @@index([organizationId, customerId])
+  @@index([organizationId, postalCode])
   @@map("properties")
 }
 
@@ -737,14 +777,17 @@ model Lead {
   conversations Conversation[]
   files         File[]
 
+  /// The target of a composite foreign key. Children reference
+  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
+  /// that points at another business's record — see the note at the top of this
+  /// file. Prisma requires the referenced pair to be unique.
+  @@unique([organizationId, id])
   @@index([organizationId, status, position])
   @@index([organizationId, createdAt])
   @@index([organizationId, nextFollowUpAt])
   @@index([organizationId, aiScore])
-
-  /*
+  /**
    * Foreign keys, indexed.
-   *
    * Postgres does not index a foreign key for you, and these columns are read in
    * two ways that both need one. Relations are traversed on read: the analytics
    * funnel asks "which leads have an accepted quote?", which Prisma compiles to a
@@ -755,12 +798,6 @@ model Lead {
    */
   @@index([organizationId, customerId])
   @@index([organizationId, propertyId])
-  /// The target of a composite foreign key. Children reference
-  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
-  /// that points at another business's record — see the note at the top of this
-  /// file. Prisma requires the referenced pair to be unique.
-  @@unique([organizationId, id])
-
   @@map("leads")
 }
 
@@ -832,13 +869,12 @@ model Service {
   appointments Appointment[]
 
   @@unique([organizationId, name])
-  @@index([organizationId, active, position])
   /// The target of a composite foreign key. Children reference
   /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
   /// that points at another business's record — see the note at the top of this
   /// file. Prisma requires the referenced pair to be unique.
   @@unique([organizationId, id])
-
+  @@index([organizationId, active, position])
   @@map("services")
 }
 
@@ -952,13 +988,16 @@ model Quote {
   jobs  Job[]
 
   @@unique([organizationId, number])
+  /// The target of a composite foreign key. Children reference
+  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
+  /// that points at another business's record — see the note at the top of this
+  /// file. Prisma requires the referenced pair to be unique.
+  @@unique([organizationId, id])
   @@index([organizationId, status, createdAt])
   @@index([organizationId, expiresAt])
   @@index([organizationId, customerId])
-
-  /*
+  /**
    * Foreign keys, indexed.
-   *
    * Postgres does not index a foreign key for you, and these columns are read in
    * two ways that both need one. Relations are traversed on read: the analytics
    * funnel asks "which leads have an accepted quote?", which Prisma compiles to a
@@ -969,12 +1008,6 @@ model Quote {
    */
   @@index([organizationId, leadId])
   @@index([organizationId, propertyId])
-  /// The target of a composite foreign key. Children reference
-  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
-  /// that points at another business's record — see the note at the top of this
-  /// file. Prisma requires the referenced pair to be unique.
-  @@unique([organizationId, id])
-
   @@map("quotes")
 }
 
@@ -1010,10 +1043,8 @@ model QuoteItem {
   updatedAt DateTime @updatedAt
 
   @@index([organizationId, quoteId, position])
-
-  /*
+  /**
    * Foreign keys, indexed.
-   *
    * Postgres does not index a foreign key for you, and these columns are read in
    * two ways that both need one. Relations are traversed on read: the analytics
    * funnel asks "which leads have an accepted quote?", which Prisma compiles to a
@@ -1074,13 +1105,16 @@ model Job {
   reviewRequests ReviewRequest[]
 
   @@unique([organizationId, number])
+  /// The target of a composite foreign key. Children reference
+  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
+  /// that points at another business's record — see the note at the top of this
+  /// file. Prisma requires the referenced pair to be unique.
+  @@unique([organizationId, id])
   @@index([organizationId, status, scheduledFor])
   @@index([organizationId, customerId])
   @@index([organizationId, assignedUserId])
-
-  /*
+  /**
    * Foreign keys, indexed.
-   *
    * Postgres does not index a foreign key for you, and these columns are read in
    * two ways that both need one. Relations are traversed on read: the analytics
    * funnel asks "which leads have an accepted quote?", which Prisma compiles to a
@@ -1093,12 +1127,6 @@ model Job {
   @@index([organizationId, propertyId])
   @@index([organizationId, serviceId])
   @@index([assignedUserId])
-  /// The target of a composite foreign key. Children reference
-  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
-  /// that points at another business's record — see the note at the top of this
-  /// file. Prisma requires the referenced pair to be unique.
-  @@unique([organizationId, id])
-
   @@map("jobs")
 }
 
@@ -1145,10 +1173,8 @@ model Appointment {
   @@index([organizationId, startsAt])
   @@index([organizationId, status, startsAt])
   @@index([organizationId, jobId])
-
-  /*
+  /**
    * Foreign keys, indexed.
-   *
    * Postgres does not index a foreign key for you, and these columns are read in
    * two ways that both need one. Relations are traversed on read: the analytics
    * funnel asks "which leads have an accepted quote?", which Prisma compiles to a
@@ -1195,12 +1221,15 @@ model Conversation {
   messages Message[]
 
   @@unique([organizationId, channel, contact])
+  /// The target of a composite foreign key. Children reference
+  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
+  /// that points at another business's record — see the note at the top of this
+  /// file. Prisma requires the referenced pair to be unique.
+  @@unique([organizationId, id])
   @@index([organizationId, lastMessageAt])
   @@index([organizationId, archived, lastMessageAt])
-
-  /*
+  /**
    * Foreign keys, indexed.
-   *
    * Postgres does not index a foreign key for you, and these columns are read in
    * two ways that both need one. Relations are traversed on read: the analytics
    * funnel asks "which leads have an accepted quote?", which Prisma compiles to a
@@ -1211,12 +1240,6 @@ model Conversation {
    */
   @@index([organizationId, customerId])
   @@index([organizationId, leadId])
-  /// The target of a composite foreign key. Children reference
-  /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
-  /// that points at another business's record — see the note at the top of this
-  /// file. Prisma requires the referenced pair to be unique.
-  @@unique([organizationId, id])
-
   @@map("conversations")
 }
 
@@ -1286,13 +1309,12 @@ model Automation {
   steps AutomationStep[]
   runs  AutomationRun[]
 
-  @@index([organizationId, trigger, enabled])
   /// The target of a composite foreign key. Children reference
   /// (organizationId, id) rather than id alone, so Postgres itself refuses a row
   /// that points at another business's record — see the note at the top of this
   /// file. Prisma requires the referenced pair to be unique.
   @@unique([organizationId, id])
-
+  @@index([organizationId, trigger, enabled])
   @@map("automations")
 }
 
@@ -1355,10 +1377,8 @@ model AutomationRun {
   @@unique([automationId, subjectType, subjectId])
   @@index([status, runAt])
   @@index([organizationId, status])
-
-  /*
+  /**
    * Foreign keys, indexed.
-   *
    * Postgres does not index a foreign key for you, and these columns are read in
    * two ways that both need one. Relations are traversed on read: the analytics
    * funnel asks "which leads have an accepted quote?", which Prisma compiles to a
@@ -1399,10 +1419,8 @@ model ReviewRequest {
 
   @@index([organizationId, status, createdAt])
   @@index([organizationId, customerId])
-
-  /*
+  /**
    * Foreign keys, indexed.
-   *
    * Postgres does not index a foreign key for you, and these columns are read in
    * two ways that both need one. Relations are traversed on read: the analytics
    * funnel asks "which leads have an accepted quote?", which Prisma compiles to a
@@ -1471,10 +1489,8 @@ model Notification {
 
   @@index([organizationId, userId, readAt])
   @@index([organizationId, createdAt])
-
-  /*
+  /**
    * Foreign keys, indexed.
-   *
    * Postgres does not index a foreign key for you, and these columns are read in
    * two ways that both need one. Relations are traversed on read: the analytics
    * funnel asks "which leads have an accepted quote?", which Prisma compiles to a
@@ -1513,10 +1529,8 @@ model AuditLog {
 
   @@index([organizationId, createdAt])
   @@index([organizationId, entityType, entityId])
-
-  /*
+  /**
    * Foreign keys, indexed.
-   *
    * Postgres does not index a foreign key for you, and these columns are read in
    * two ways that both need one. Relations are traversed on read: the analytics
    * funnel asks "which leads have an accepted quote?", which Prisma compiles to a

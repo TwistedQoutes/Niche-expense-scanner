@@ -70,9 +70,58 @@ test('an invited teammate joins, can work, and cannot invite anyone else', async
   expect(escalation.status).toBe(403);
 
   // The owner now sees two people and no outstanding invitation.
-  const after = await api<{ members: unknown[]; invites: unknown[] }>(page, '/api/team');
+  type TeamRow = { userId: string; role: string; hourlyRateCents: number | null; payVisible: boolean };
+  const after = await api<{ members: TeamRow[]; invites: unknown[] }>(page, '/api/team');
   expect(after.body.members).toHaveLength(2);
   expect(after.body.invites).toHaveLength(0);
+
+  /*
+   * Pay, which is the most sensitive column in the product.
+   *
+   * The owner sets a rate for the crew member and one for themselves — an
+   * owner-operator costing their own hours is the ordinary case, and the rank
+   * rule allows acting on yourself for pay where it refuses it for roles.
+   */
+  const crew = after.body.members.find((member) => member.role === 'STAFF')!;
+  const ownerRow = after.body.members.find((member) => member.role === 'OWNER')!;
+
+  for (const [userId, rate] of [
+    [crew.userId, 2_200],
+    [ownerRow.userId, 4_500],
+  ] as const) {
+    const saved = await api(page, `/api/team/members/${userId}`, {
+      method: 'PATCH',
+      body: { hourlyRateCents: rate },
+    });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+  }
+
+  // What the crew member can see of that: their own rate, and nothing where the
+  // owner's would be. A crew member who can look up the payroll is the failure
+  // this rule exists to prevent.
+  const asCrew = await api<{ members: TeamRow[] }>(strangerPage, '/api/team');
+  expect(asCrew.status).toBe(200);
+
+  const ownerAsSeenByCrew = asCrew.body.members.find((member) => member.userId === ownerRow.userId)!;
+  const selfAsSeenByCrew = asCrew.body.members.find((member) => member.userId === crew.userId)!;
+
+  expect(ownerAsSeenByCrew.hourlyRateCents).toBeNull();
+  expect(ownerAsSeenByCrew.payVisible).toBe(false);
+  expect(selfAsSeenByCrew.hourlyRateCents).toBe(2_200);
+  expect(selfAsSeenByCrew.payVisible).toBe(true);
+
+  // And they cannot set one — not the owner's, and not their own.
+  for (const userId of [ownerRow.userId, crew.userId]) {
+    const refused = await api(strangerPage, `/api/team/members/${userId}`, {
+      method: 'PATCH',
+      body: { hourlyRateCents: 9_900 },
+    });
+    expect(refused.status).toBe(403);
+  }
+
+  // The rate the owner set is still the rate.
+  const unchanged = await api<{ members: TeamRow[] }>(page, '/api/team');
+  expect(unchanged.body.members.find((member) => member.userId === crew.userId)?.hourlyRateCents).toBe(2_200);
 
   await stranger.close();
 });

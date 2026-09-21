@@ -56,9 +56,24 @@ test('a customer with no account can open a quote and accept it', async ({ page,
     });
 
     // Accepting creates the job on the owner's side.
-    const jobs = await api<{ jobs: { title: string }[] }>(page, '/api/jobs');
+    const jobs = await api<{ jobs: { id: string; title: string }[] }>(page, '/api/jobs');
     const titles = jobs.body.jobs.map((job) => job.title).join(' ');
     expect(titles).toContain('Weekly mowing');
+
+    /*
+     * And the owner can see what that job cost them.
+     *
+     * The figures are mostly unknown on a job nobody has worked yet — no pay
+     * rate, no hours, no measured drive — and that is the case worth asserting:
+     * the screen says which parts it could not work out instead of totalling the
+     * unknowns as zero and reporting a profit that is not there.
+     */
+    const job = jobs.body.jobs.find((one) => one.title === 'Weekly mowing')!;
+    await page.goto(`/jobs/${job.id}`);
+
+    await expect(page.getByText('What this job cost')).toBeVisible();
+    await expect(page.getByText('Partial — some of the cost is not known yet.')).toBeVisible();
+    await expect(page.getByText(/No pay rate is set/)).toBeVisible();
   } finally {
     await stranger.close();
   }

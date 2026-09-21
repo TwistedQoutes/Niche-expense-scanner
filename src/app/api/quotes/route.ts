@@ -6,6 +6,7 @@ import { RATE_LIMITS, enforceRateLimit } from '@/lib/api/rate-limit';
 import { jsonOk, toFieldErrors } from '@/lib/api/response';
 import { requireAuth } from '@/lib/auth/context';
 import { effectivePlan, enforceUsageLimit, recordUsage } from '@/lib/billing/usage';
+import { destinationFor } from '@/lib/maps/drive';
 import { resolvePricing } from '@/lib/pricing/resolve';
 import { QUOTE_ROW_SELECT, createQuote } from '@/lib/quotes/repository';
 import { createQuoteSchema, listQuotesQuerySchema } from '@/lib/validation/quotes';
@@ -72,7 +73,24 @@ export const POST = withRoute(async (request) => {
   // one check next to the write rather than a copy here that a second caller
   // would not inherit. See src/lib/db/ownership.ts.
 
-  const { breakdown, input, serviceName } = await resolvePricing(auth, body.pricing);
+  /*
+   * The drive, measured from the business's own address to wherever this quote
+   * is going, and folded into the travel line before anything is priced.
+   *
+   * This is the difference between a travel charge that reflects the job and one
+   * that reflects whatever the default happened to be. It costs one Google
+   * request per property, ever — the answer is cached on the property — and when
+   * it cannot be worked out the quote prices exactly as it did before.
+   */
+  const destination = await destinationFor(auth.db, {
+    propertyId: body.propertyId ?? null,
+    customerId: body.customerId ?? null,
+    leadId: body.leadId ?? null,
+  });
+
+  const { breakdown, input, serviceName } = await resolvePricing(auth, body.pricing, {
+    destination,
+  });
 
   const quote = await createQuote(auth.db, {
     organizationId: auth.organization.id,

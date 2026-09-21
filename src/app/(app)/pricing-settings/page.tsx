@@ -41,6 +41,8 @@ export default async function PricingSettingsPage() {
         defaultMinimumJobCents: true,
         defaultOverheadCents: true,
         defaultTaxRateBps: true,
+        fuelPricePerGallonCents: true,
+        vehicleMpgMilli: true,
       },
     }),
     auth.db.service.findMany({

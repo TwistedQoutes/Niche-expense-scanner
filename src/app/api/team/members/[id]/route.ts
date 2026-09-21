@@ -6,9 +6,14 @@ import { RATE_LIMITS, enforceRateLimit } from '@/lib/api/rate-limit';
 import { jsonOk, toFieldErrors } from '@/lib/api/response';
 import { requireRole } from '@/lib/auth/context';
 import { effectivePlan } from '@/lib/billing/usage';
-import { changeMemberRole, restoreMember, suspendMember } from '@/lib/team/repository';
+import {
+  changeMemberRole,
+  restoreMember,
+  setMemberPayRate,
+  suspendMember,
+} from '@/lib/team/repository';
 import { idSchema } from '@/lib/validation/common';
-import { updateMemberSchema } from '@/lib/validation/team';
+import { updateMemberPaySchema, updateMemberSchema } from '@/lib/validation/team';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,6 +54,27 @@ export const PATCH = withRoute(async (request, context: { params: Promise<{ id: 
       effectivePlan(auth.subscription),
       userId,
     );
+    return jsonOk({ ok: true });
+  }
+
+  /*
+   * Pay, which is governed by a different rule from role.
+   *
+   * Checked by key rather than by trying the role schema first: `hourlyRateCents`
+   * present — even as null, which clears it — means this is a pay change, and
+   * null is a value here rather than an omission.
+   */
+  if ('hourlyRateCents' in body) {
+    const pay = updateMemberPaySchema.safeParse(body);
+    if (!pay.success) throw validationFailed(toFieldErrors(pay.error));
+
+    await setMemberPayRate(
+      auth.db,
+      { userId: auth.user.id, role: auth.role },
+      userId,
+      pay.data.hourlyRateCents,
+    );
+
     return jsonOk({ ok: true });
   }
 
