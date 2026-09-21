@@ -2,6 +2,7 @@ import { Role } from '@prisma/client';
 
 import { prisma } from '@/lib/db/client';
 import type { TenantClient } from '@/lib/db/tenant';
+import { crewLabour } from '@/lib/costs/crew';
 import { calculateJobCost, workedMinutes, type JobCost, type LabourInput } from '@/lib/costs/engine';
 import { workedMinutesByPerson } from '@/lib/time/repository';
 
@@ -74,10 +75,33 @@ export async function jobCost(
    * Both paths feed the same arithmetic. Neither invents an hour that was not
    * recorded.
    */
-  const crew: LabourInput[] =
-    clocked.length > 0
-      ? await costClockedCrew(db, clocked, driveMinutes)
-      : [await costAssignee(db, job.assignedUserId, workedMinutes(job), driveMinutes)];
+  /*
+   * The rates for everyone involved, in one query.
+   *
+   * Whoever clocked in, plus the assignee for the fallback path — asked for
+   * together rather than one lookup per person, which on a three-person job was
+   * three round trips to read three integers.
+   */
+  const people = new Set(clocked.map((person) => person.userId));
+  if (job.assignedUserId) people.add(job.assignedUserId);
+
+  const memberships =
+    people.size > 0
+      ? await db.membership.findMany({
+          where: { userId: { in: [...people] } },
+          select: { userId: true, hourlyRateCents: true },
+        })
+      : [];
+
+  const rates = new Map(memberships.map((row) => [row.userId, row.hourlyRateCents]));
+
+  const crew: LabourInput[] = crewLabour({
+    clocked,
+    assignedUserId: job.assignedUserId,
+    jobWorkedMinutes: workedMinutes(job),
+    driveMinutes,
+    rateFor: (userId) => rates.get(userId) ?? null,
+  });
 
   return calculateJobCost({
     priceCents: job.priceCents,
@@ -86,58 +110,4 @@ export async function jobCost(
     fuelPricePerGallonCents: organization?.fuelPricePerGallonCents ?? null,
     vehicleMpgMilli: organization?.vehicleMpgMilli ?? null,
   });
-}
-
-/**
- * Each person who clocked in, at their own rate.
- *
- * The drive is counted once per person rather than once per job, because it is
- * labour and everybody in the truck is being paid for it. Two crew on a
- * twenty-minute drive is eighty paid minutes of travel, there and back, and a
- * version that counted it once would understate exactly the jobs this feature
- * exists to find.
- */
-async function costClockedCrew(
-  db: TenantClient,
-  clocked: { userId: string; minutes: number }[],
-  driveMinutes: number | null,
-): Promise<LabourInput[]> {
-  const memberships = await db.membership.findMany({
-    where: { userId: { in: clocked.map((person) => person.userId) } },
-    select: { userId: true, hourlyRateCents: true },
-  });
-
-  const rates = new Map(memberships.map((row) => [row.userId, row.hourlyRateCents]));
-
-  return clocked.map((person) => ({
-    workedMinutes: person.minutes,
-    driveMinutes,
-    hourlyRateCents: rates.get(person.userId) ?? null,
-  }));
-}
-
-/** The old shape: one span, one person, for jobs the clock never touched. */
-async function costAssignee(
-  db: TenantClient,
-  assignedUserId: string | null,
-  minutes: number | null,
-  driveMinutes: number | null,
-): Promise<LabourInput> {
-  /*
-   * The rate belongs to the membership, so an unassigned job has no labour cost
-   * to work out — which the engine reports as a missing part rather than as free
-   * work.
-   */
-  const assignee = assignedUserId
-    ? await db.membership.findFirst({
-        where: { userId: assignedUserId },
-        select: { hourlyRateCents: true },
-      })
-    : null;
-
-  return {
-    workedMinutes: minutes,
-    driveMinutes,
-    hourlyRateCents: assignee?.hourlyRateCents ?? null,
-  };
 }

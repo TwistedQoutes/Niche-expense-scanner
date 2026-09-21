@@ -66,6 +66,14 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: '/automations', label: 'Automations', built: true },
       { href: '/reviews', label: 'Reviews', built: true },
       { href: '/analytics', label: 'Analytics', built: true },
+      /*
+       * Admin-only, like Pricing. The whole screen is derived from what people
+       * are paid, so it sits behind the same line as the pay rates themselves —
+       * and the page answers a crew member with a not-found rather than a
+       * refusal, so its existence is not advertised to somebody who cannot open
+       * it.
+       */
+      { href: '/profit', label: 'Profit', admin: true, built: true },
     ],
   },
   {

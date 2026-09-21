@@ -1707,13 +1707,43 @@ producing two open entries and billing the job for two people who are one person
 `npm run db:check-constraints` asserts the index still exists, because Prisma
 cannot express it and a future migration would otherwise offer to drop it.
 
+### Which jobs are worth doing
+
+The job page answers "was this job worth doing?". **Profit** answers the question
+that follows and is invisible from inside any one job: *which of them are worth
+doing at all?* A business can be fully booked and losing money on every third
+job, and no single job page will ever say so.
+
+Sorted by margin, worst first. Not by date, which is a diary, and not by money,
+which flatters — a $12 loss on an $80 mow is a worse business than a $40 profit
+on a $4,000 install, and sorting by the cash buries the first behind the second.
+The same list is rolled up by customer and by service, because "this customer is
+loyal and costs me money" is a sentence an owner can act on.
+
+Two rules hold it up:
+
+- **A total is never built on unknowns.** A job with no pay rate has an unknown
+  cost, not a zero one, so it is left out of the headline and counted separately
+  with what it is waiting on. "You kept $4,200 across 31 jobs" has to mean 31
+  jobs that were fully costed, because that is the figure somebody repeats to
+  their accountant. The blockers are counted by kind rather than by job — one pay
+  rate unblocks forty rows, and forty identical warnings is a screen people close.
+- **Costing a hundred jobs takes four queries, not four hundred.** The obvious
+  version calls the single-job costing function in a loop; at a few hundred round
+  trips this becomes a screen nobody opens, and it would never show up on a test
+  workspace with four jobs. There is a test asserting the query count.
+
+Admin and owner only, and a crew member gets a not-found rather than a refusal —
+every number on it is derived from what people are paid, so it sits behind the
+same line as the pay rates themselves.
+
 ### End to end
 
 ```bash
 npm run test:e2e
 ```
 
-36 tests, run twice — once as a desktop browser and once as a phone, because this
+39 tests, run twice — once as a desktop browser and once as a phone, because this
 product is used one-handed in a truck and a layout that only works at 1280px does
 not work. They drive a production build against a real Postgres: signup and the
 pipeline, tenant isolation through real cookies, a stranger accepting a quote,
