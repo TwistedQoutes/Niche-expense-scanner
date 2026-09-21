@@ -57,6 +57,11 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: '/jobs', label: 'Jobs', primary: true, built: true },
       { href: '/calendar', label: 'Calendar', primary: true, built: true },
+      /*
+       * Admin and above: applying a route changes times customers have been
+       * given, which is not a decision for whoever is holding a phone.
+       */
+      { href: '/route', label: 'Route', admin: true, built: true },
       { href: '/messages', label: 'Messages', built: true },
     ],
   },

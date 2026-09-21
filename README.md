@@ -1737,13 +1737,53 @@ Admin and owner only, and a crew member gets a not-found rather than a refusal �
 every number on it is derived from what people are paid, so it sits behind the
 same line as the pay rates themselves.
 
+### A shorter way round the day
+
+**Route** shows a day's stops as booked and in the order they could be done,
+side by side, and the owner decides. Nearest-neighbour for a first pass, then
+2-opt to untangle the crossings it leaves — which on the test days finds the
+genuinely optimal order, checked against all 5,040 arrangements of a seven-stop
+day.
+
+**Distances are straight lines, not roads, and the screen says so everywhere
+they appear.** A river or a one-way system can make two gardens four hundred
+yards apart a ten-minute drive, and a number labelled "miles" that is not road
+miles is exactly the sort of thing somebody would plan a morning around. What
+crow-flies distance is reliably good at is deciding the *order* — the nearest
+garden as the crow flies is almost always the nearest to drive to in a town — and
+the mileage beside it is there to compare one order against another. Road
+distances would mean a Google call per pair of stops on every recalculation, and
+would put the feature out of reach of anyone who has not configured Maps.
+
+Nothing is moved automatically. The thing being reordered is a set of times
+customers have been told, so applying is a separate, deliberate act behind a
+confirmation that says the two things somebody would otherwise discover
+afterwards: the times move, keeping each job's length and starting when the day
+already starts, and **your customers are not told**. The product could text them
+— it has an automation engine for exactly that, and it would be one call from
+here — but a dozen people receiving an unexplained new appointment because their
+gardener pressed a button on a map is worse than a dozen calls the gardener chose
+to make.
+
+Three smaller decisions worth knowing:
+
+- **A job with no coordinates is listed, not dropped.** Every new workspace is in
+  that state, and a job missing from the plan is a job that does not get done.
+- **No business address still gives you something.** The day is ordered from
+  whatever is booked first instead, which is a rougher plan and says so.
+- **Applying is all-or-nothing.** An order naming a visit that has since been
+  cancelled is refused outright, because a half-applied reorder is two jobs in
+  one slot and a gap where the third was.
+
+Admin and owner only, page and endpoint both.
+
 ### End to end
 
 ```bash
 npm run test:e2e
 ```
 
-39 tests, run twice — once as a desktop browser and once as a phone, because this
+44 tests, run twice — once as a desktop browser and once as a phone, because this
 product is used one-handed in a truck and a layout that only works at 1280px does
 not work. They drive a production build against a real Postgres: signup and the
 pipeline, tenant isolation through real cookies, a stranger accepting a quote,
