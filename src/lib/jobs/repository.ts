@@ -46,6 +46,13 @@ const JOB_SELECT = {
   },
   quote: { select: { id: true, number: true, totalCents: true } },
   service: { select: { id: true, name: true } },
+  /*
+   * The property's coordinates, which are what a clock-in pin gets compared
+   * against. Carried on the job rather than fetched separately because the job
+   * page needs them on every render and a second round trip for two floats is a
+   * query the list view would also pay for.
+   */
+  property: { select: { id: true, latitude: true, longitude: true } },
   assignedUser: { select: { id: true, name: true } },
   appointments: {
     where: { status: { not: 'CANCELLED' as const } },

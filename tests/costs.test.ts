@@ -102,7 +102,7 @@ describe('the cost of the driving', () => {
 describe('a job, all in', () => {
   const complete = {
     priceCents: 12_500,
-    labour: { workedMinutes: 90, driveMinutes: 12, hourlyRateCents: RATE },
+    crew: [{ workedMinutes: 90, driveMinutes: 12, hourlyRateCents: RATE }],
     driveMiles: 10,
     fuelPricePerGallonCents: FUEL,
     vehicleMpgMilli: MPG,
@@ -141,7 +141,7 @@ describe('a job, all in', () => {
      */
     const cost = calculateJobCost({
       priceCents: 5_000,
-      labour: { workedMinutes: 45, driveMinutes: 40, hourlyRateCents: RATE },
+      crew: [{ workedMinutes: 45, driveMinutes: 40, hourlyRateCents: RATE }],
       driveMiles: 38,
       fuelPricePerGallonCents: FUEL,
       vehicleMpgMilli: MPG,
@@ -155,7 +155,7 @@ describe('a job, all in', () => {
   it('marks the total incomplete rather than counting an unknown as free', () => {
     const cost = calculateJobCost({
       ...complete,
-      labour: { workedMinutes: 90, driveMinutes: null, hourlyRateCents: null },
+      crew: [{ workedMinutes: 90, driveMinutes: null, hourlyRateCents: null }],
       driveMiles: null,
     });
 
@@ -200,5 +200,132 @@ describe('how long a job took', () => {
     expect(
       workedMinutes({ startedAt: start, completedAt: new Date('2026-05-04T08:00:00Z') }),
     ).toBeNull();
+  });
+});
+
+describe('a crew, rather than one person', () => {
+  /*
+   * The reason the clock exists.
+   *
+   * Before per-person entries a job carried one start and one finish, so two
+   * people for an hour cost the same as one — which is not a rounding error, it
+   * is half the wage bill on every job worked by a pair. These tests are the
+   * arithmetic that makes the second person visible.
+   */
+  const MATE = 1_800; // $18/hour, the less experienced of the two
+
+  it('pays each person for their own hours at their own rate', () => {
+    // 90 minutes at $22 is $33; 60 at $18 is $18.
+    const cost = calculateJobCost({
+      priceCents: 20_000,
+      crew: [
+        { workedMinutes: 90, driveMinutes: null, hourlyRateCents: RATE },
+        { workedMinutes: 60, driveMinutes: null, hourlyRateCents: MATE },
+      ],
+      driveMiles: null,
+      fuelPricePerGallonCents: FUEL,
+      vehicleMpgMilli: MPG,
+    });
+
+    expect(cost.labourCents).toBe(5_100);
+  });
+
+  it('pays everybody in the truck for the drive', () => {
+    /*
+     * Both ways, for both of them: a 15-minute drive is 30 paid minutes each and
+     * 60 across the pair. Counting the drive once per job would understate
+     * exactly the distant, small jobs this screen is for.
+     */
+    const cost = calculateJobCost({
+      priceCents: 20_000,
+      crew: [
+        { workedMinutes: 90, driveMinutes: 15, hourlyRateCents: RATE },
+        { workedMinutes: 90, driveMinutes: 15, hourlyRateCents: RATE },
+      ],
+      driveMiles: null,
+      fuelPricePerGallonCents: FUEL,
+      vehicleMpgMilli: MPG,
+    });
+
+    // 30 minutes each at $22 is $11 each.
+    expect(cost.travelLabourCents).toBe(2_200);
+  });
+
+  it('burns one tank however many people are in the truck', () => {
+    const alone = calculateJobCost({
+      priceCents: 20_000,
+      crew: [{ workedMinutes: 60, driveMinutes: 10, hourlyRateCents: RATE }],
+      driveMiles: 10,
+      fuelPricePerGallonCents: FUEL,
+      vehicleMpgMilli: MPG,
+    });
+
+    const together = calculateJobCost({
+      priceCents: 20_000,
+      crew: [
+        { workedMinutes: 60, driveMinutes: 10, hourlyRateCents: RATE },
+        { workedMinutes: 60, driveMinutes: 10, hourlyRateCents: MATE },
+      ],
+      driveMiles: 10,
+      fuelPricePerGallonCents: FUEL,
+      vehicleMpgMilli: MPG,
+    });
+
+    // Wages double, fuel does not: a second passenger costs nothing to carry.
+    expect(together.fuelCents).toBe(alone.fuelCents);
+    expect(together.labourCents).toBeGreaterThan(alone.labourCents);
+  });
+
+  it('still costs the people it can when one of them has no rate', () => {
+    const cost = calculateJobCost({
+      priceCents: 20_000,
+      crew: [
+        { workedMinutes: 60, driveMinutes: null, hourlyRateCents: RATE },
+        { workedMinutes: 60, driveMinutes: null, hourlyRateCents: null },
+      ],
+      driveMiles: null,
+      fuelPricePerGallonCents: FUEL,
+      vehicleMpgMilli: MPG,
+    });
+
+    // The one known wage is counted, and the total is flagged as a floor rather
+    // than presented as the answer — the new hire's hour is not free.
+    expect(cost.labourCents).toBe(2_200);
+    expect(cost.complete).toBe(false);
+    expect(cost.missing.some((entry) => entry.part === 'labour')).toBe(true);
+  });
+
+  it('says the same thing once for a whole unpaid crew', () => {
+    // Three people, one blank field to go and fill in. Three copies of the same
+    // sentence on one card reads as a broken screen, not a helpful one.
+    const cost = calculateJobCost({
+      priceCents: 20_000,
+      crew: [
+        { workedMinutes: 60, driveMinutes: 10, hourlyRateCents: null },
+        { workedMinutes: 60, driveMinutes: 10, hourlyRateCents: null },
+        { workedMinutes: 60, driveMinutes: 10, hourlyRateCents: null },
+      ],
+      driveMiles: 10,
+      fuelPricePerGallonCents: FUEL,
+      vehicleMpgMilli: MPG,
+    });
+
+    expect(cost.missing.filter((entry) => entry.part === 'labour')).toHaveLength(1);
+  });
+
+  it('treats nobody at all as unknown hours, not as a free job', () => {
+    // A job with no clock entries and no timestamps. The tempting zero here is
+    // the one that makes every un-worked job look profitable.
+    const cost = calculateJobCost({
+      priceCents: 20_000,
+      crew: [],
+      driveMiles: 10,
+      fuelPricePerGallonCents: FUEL,
+      vehicleMpgMilli: MPG,
+    });
+
+    expect(cost.labourCents).toBe(0);
+    expect(cost.complete).toBe(false);
+    expect(cost.missing.some((entry) => entry.part === 'labour')).toBe(true);
   });
 });

@@ -60,6 +60,24 @@ const REQUIRED_COMPOSITE = [
   ['review_requests', 'jobId'],
   ['files', 'leadId'],
   ['files', 'jobId'],
+  ['time_entries', 'jobId'],
+];
+
+/**
+ * Indexes that exist only in migration SQL, because Prisma cannot express them.
+ *
+ * Checked here for one reason: a future `prisma migrate dev` diffs the schema
+ * against the database, sees an index the schema does not mention, and offers to
+ * drop it. Accepting that would remove a guarantee silently, and the symptom
+ * would turn up weeks later as a job billed for two people who were one person.
+ * Named here, losing one fails the deploy instead.
+ */
+const REQUIRED_PARTIAL_INDEXES = [
+  {
+    name: 'time_entries_one_open_per_person',
+    table: 'time_entries',
+    why: 'stops a double tap on "clock in" opening two entries and double-counting the hours',
+  },
 ];
 
 const connectionString = process.env.DATABASE_URL;
@@ -128,6 +146,32 @@ for (const [table, column] of REQUIRED_COMPOSITE) {
           `fail. Restore the column list: ON DELETE SET NULL ("${column}").`,
       );
     }
+  }
+}
+
+/*
+ * The hand-written partial indexes, which no schema file mentions.
+ */
+const partialIndexes = await prisma.$queryRaw`
+  SELECT i.relname::text AS name, t.relname::text AS table_name
+  FROM pg_index x
+  JOIN pg_class i ON i.oid = x.indexrelid
+  JOIN pg_class t ON t.oid = x.indrelid
+  JOIN pg_namespace ns ON ns.oid = t.relnamespace
+  WHERE ns.nspname = 'public' AND x.indisunique AND x.indpred IS NOT NULL
+`;
+
+for (const required of REQUIRED_PARTIAL_INDEXES) {
+  const found = partialIndexes.some(
+    (row) => row.name === required.name && row.table_name === required.table,
+  );
+
+  if (!found) {
+    problems.push(
+      `${required.table}: the partial unique index ${required.name} is gone. It ` +
+        `${required.why}. Prisma cannot express it, so a migrate that regenerated ` +
+        `the table will have dropped it — restore it from the migration that added it.`,
+    );
   }
 }
 
@@ -206,5 +250,6 @@ if (problems.length > 0) {
 
 console.log(
   `Tenant constraints OK: ${REQUIRED_COMPOSITE.length} composite foreign keys, ` +
+    `${REQUIRED_PARTIAL_INDEXES.length} partial unique index(es), ` +
     `every SET NULL limited to its own column, and a cross-tenant write refused.`,
 );

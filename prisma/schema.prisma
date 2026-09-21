@@ -337,6 +337,7 @@ model Organization {
   invoices       Invoice[]
   auditLogs      AuditLog[]
   invitations    Invitation[]
+  timeEntries    TimeEntry[]
 
   @@index([status])
   @@index([createdAt])
@@ -371,6 +372,7 @@ model User {
   memberships   Membership[]
   authTokens    AuthToken[]
   assignedJobs  Job[]          @relation("JobAssignee")
+  timeEntries   TimeEntry[]    @relation("TimeEntryWorker")
   notifications Notification[]
   auditLogs     AuditLog[]
   sentInvites   Invitation[]   @relation("InvitedBy")
@@ -1103,6 +1105,7 @@ model Job {
   appointments   Appointment[]
   files          File[]
   reviewRequests ReviewRequest[]
+  timeEntries    TimeEntry[]
 
   @@unique([organizationId, number])
   /// The target of a composite foreign key. Children reference
@@ -1465,6 +1468,87 @@ model File {
   @@index([organizationId, jobId])
   @@index([organizationId, leadId])
   @@map("files")
+}
+
+/// An hour of somebody's working day, on one job.
+///
+/// The row a crew member creates by tapping "clock in" and closes by tapping
+/// "clock out". It exists for two reasons that pull in different directions, and
+/// the design is mostly about the tension between them.
+///
+/// The first is arithmetic. A job's cost is hours times pay, and until now the
+/// hours came from when the *job* was started and completed — one span for the
+/// whole job, no matter how many people worked it or how long each of them
+/// stayed. Two crew for an hour is two paid hours, and a job record cannot say
+/// that. Per-person entries can.
+///
+/// The second is that this is a record of where an employee was, which is a
+/// different kind of data from a quote total and is treated as one:
+///
+///  * The pin is taken at the tap, and only at the tap. Nothing here follows
+///    anybody around, and there is no schema for a track, because a schema for a
+///    track is the first half of building one.
+///  * Every location column is nullable, and refusing the permission is an
+///    ordinary outcome rather than a failure: a clock-in with no pin is a valid
+///    clock-in. Time is the thing being recorded; the pin is corroboration. A
+///    crew member who cannot start work because their phone declined is a worse
+///    product than one with a gap in its evidence.
+///  * `startAccuracyMetres` is stored beside the coordinates because a distance
+///    without it is not a fact — see src/lib/geo/distance.ts.
+///  * Reading someone else's pins needs the standing to manage them, the same
+///    line that guards pay.
+model TimeEntry {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  jobId String
+  job   Job    @relation(fields: [organizationId, jobId], references: [organizationId, id], onDelete: Cascade)
+
+  /// Who was working. Not the assignee: the person who turned up is the person
+  /// being paid, and on a busy Saturday those are regularly not the same.
+  userId String
+  user   User   @relation("TimeEntryWorker", fields: [userId], references: [id], onDelete: Cascade)
+
+  startedAt DateTime  @default(now())
+  /// Null while they are still on the clock.
+  endedAt   DateTime?
+
+  /// Where the phone said it was when they tapped in, and how sure it was.
+  startLatitude       Float?
+  startLongitude      Float?
+  startAccuracyMetres Int?
+  /// Why there is no pin: denied, unavailable, timeout, unsupported, insecure.
+  /// Recorded rather than left blank so "they turned the permission off" and
+  /// "the app never asked" are different answers.
+  startLocationNote   String?
+
+  endLatitude       Float?
+  endLongitude      Float?
+  endAccuracyMetres Int?
+  endLocationNote   String?
+
+  /// What they were doing, if they said.
+  note String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, jobId])
+  @@index([organizationId, userId, startedAt])
+  /// One open entry per person is enforced by a PARTIAL UNIQUE INDEX that Prisma
+  /// cannot express, so it lives in the migration SQL by hand:
+  ///
+  ///   CREATE UNIQUE INDEX time_entries_one_open_per_person
+  ///     ON time_entries ("organizationId", "userId") WHERE "endedAt" IS NULL;
+  ///
+  /// It is the database's job rather than the application's because the failure
+  /// it prevents is a double tap on a slow connection producing two open
+  /// entries, and therefore double hours on the job it costs. Because a future
+  /// `prisma migrate dev` would see an index the schema does not mention and
+  /// offer to drop it, `npm run db:check-constraints` asserts it exists — so
+  /// losing it fails a deploy rather than quietly doubling somebody's timesheet.
+  @@map("time_entries")
 }
 
 model Notification {

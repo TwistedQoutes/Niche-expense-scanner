@@ -3,8 +3,10 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { ClockCard } from '@/components/jobs/ClockCard';
 import { JobActions } from '@/components/jobs/JobActions';
 import { JobCostCard } from '@/components/jobs/JobCostCard';
+import { TimeSheet, type TimeSheetEntry } from '@/components/jobs/TimeSheet';
 import { JobPhotos } from '@/components/jobs/JobPhotos';
 import { ScheduleForm } from '@/components/jobs/ScheduleForm';
 import {
@@ -29,6 +31,14 @@ import {
   toLocalTimeValue,
 } from '@/lib/dates';
 import { getJob } from '@/lib/jobs/repository';
+import {
+  jobTimeSheet,
+  looksForgotten,
+  maySeeLocationOf,
+  entryMinutes,
+  proximityOfEnd,
+  proximityOfStart,
+} from '@/lib/time/repository';
 import { formatCents } from '@/lib/money';
 import { AppError } from '@/lib/api/errors';
 
@@ -59,6 +69,34 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
    * src/lib/costs/repository.ts.
    */
   const cost = maySeeJobCosts(auth.role) ? await jobCost(auth.db, auth.organization.id, job.id) : null;
+
+  /*
+   * The clock.
+   *
+   * Read for everyone, including crew — a timesheet a crew member cannot see is
+   * one they cannot correct. What differs by role is the *pins*: whose location
+   * you may look at is decided here, server-side, by not sending the rest. A
+   * component that received them and chose not to render them would still have
+   * put one person's movements into another's browser.
+   */
+  const sheet = await jobTimeSheet(auth.db, job.id, auth.user.id);
+
+  const timeEntries: TimeSheetEntry[] = sheet.entries.map((entry) => {
+    const maySeeWhere = maySeeLocationOf({ role: auth.role, userId: auth.user.id }, entry.userId);
+
+    return {
+      id: entry.id,
+      who: entry.userId === auth.user.id ? 'You' : (entry.user.name ?? 'A teammate'),
+      startedAt: entry.startedAt,
+      endedAt: entry.endedAt,
+      minutes: entryMinutes(entry),
+      note: entry.note,
+      startProximity: maySeeWhere ? proximityOfStart(entry, job.property) : null,
+      endProximity: maySeeWhere ? proximityOfEnd(entry, job.property) : null,
+      startLocationNote: maySeeWhere ? entry.startLocationNote : null,
+      forgotten: looksForgotten(entry),
+    };
+  });
 
   const teammates = await auth.db.membership.findMany({
     where: { status: 'ACTIVE' },
@@ -172,6 +210,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
             </Card>
           ) : null}
 
+          <TimeSheet entries={timeEntries} totalMinutes={sheet.totalMinutes} />
+
           <JobPhotos
             jobId={job.id}
             photos={photos}
@@ -182,6 +222,14 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         </div>
 
         <div className="space-y-4">
+          {finished ? null : (
+            <ClockCard
+              jobId={job.id}
+              onTheClockSince={sheet.mine?.startedAt.toISOString() ?? null}
+              crewOnSite={sheet.entries.filter((entry) => !entry.endedAt).length}
+            />
+          )}
+
           {cost ? <JobCostCard cost={cost} currency={job.currency} /> : null}
 
           <Card>

@@ -1659,13 +1659,61 @@ Pay is visible to owners and admins, and to the person it belongs to — never t
 the rest of the crew, since a one-person job's labour line *is* that person's
 wage. The server withholds it rather than the screen hiding it.
 
+### Clocking on and off
+
+The crew taps **Clock in** when they arrive and **Clock out** when they leave.
+One entry per person per job, which is what the job's own start and finish
+timestamps could never express: two people for an hour is two paid hours, and
+they are not necessarily paid the same. Each person's minutes meet their own
+rate, the drive is charged to everyone in the truck, and the tank is charged
+once.
+
+Clocking in also starts the job. Arriving and starting work are one event to the
+person holding the phone, and asking for two taps to say one thing is how the
+second tap stops happening.
+
+Clocking out deliberately does **not** finish the job. Completing moves the
+customer's lifetime value and sets the review request going; packing the truck
+is not that decision.
+
+**The tap always works.** A location is asked for at the moment of the tap and
+waited on for eight seconds, and then the clock starts regardless — permission
+denied, no signal, an old browser, or a permission prompt nobody answered. The
+entry records which kind of nothing it was. Time is the record; the pin is
+corroboration, and evidence is allowed to be missing. A crew member who cannot
+start work because their phone declined is a worse product than one with a gap in
+its evidence.
+
+Three things follow from the fact that this is a record of where an employee was:
+
+- **Nothing tracks anybody between taps.** There is no schema for a track,
+  because a schema for a track is the first half of building one.
+- **A distance is never shown without the accuracy behind it.** A pin 400 feet
+  from the house with a 10-metre radius means something; the same 400 feet with a
+  1,500-metre radius means nothing, and the screen says so in words rather than
+  printing a number that reads like proof. The accuracy radius is also counted in
+  the crew's favour, because a false "away" is an accusation and a false "at the
+  property" is a slightly generous timesheet.
+- **Whose pins you can see is the same line as pay.** Owners, admins, and the
+  person themselves. Decided on the server by not sending the rest.
+
+An entry still open after twelve hours is flagged as probably a missed clock-out,
+and its hours are left out of the job's cost until somebody closes it — never
+truncated or deleted.
+
+One open entry per person is enforced by a partial unique index in Postgres, not
+by application code: the failure it prevents is a double tap on one bar of signal
+producing two open entries and billing the job for two people who are one person.
+`npm run db:check-constraints` asserts the index still exists, because Prisma
+cannot express it and a future migration would otherwise offer to drop it.
+
 ### End to end
 
 ```bash
 npm run test:e2e
 ```
 
-28 tests, run twice — once as a desktop browser and once as a phone, because this
+36 tests, run twice — once as a desktop browser and once as a phone, because this
 product is used one-handed in a truck and a layout that only works at 1280px does
 not work. They drive a production build against a real Postgres: signup and the
 pipeline, tenant isolation through real cookies, a stranger accepting a quote,

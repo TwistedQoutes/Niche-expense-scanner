@@ -2,7 +2,8 @@ import { Role } from '@prisma/client';
 
 import { prisma } from '@/lib/db/client';
 import type { TenantClient } from '@/lib/db/tenant';
-import { calculateJobCost, workedMinutes, type JobCost } from '@/lib/costs/engine';
+import { calculateJobCost, workedMinutes, type JobCost, type LabourInput } from '@/lib/costs/engine';
+import { workedMinutesByPerson } from '@/lib/time/repository';
 
 /**
  * Gathering the four numbers a job's cost is made of.
@@ -48,18 +49,8 @@ export async function jobCost(
 
   if (!job) return null;
 
-  const [assignee, organization] = await Promise.all([
-    /*
-     * The rate belongs to the membership, so an unassigned job has no labour
-     * cost to work out — which the engine reports as a missing part rather than
-     * as free work.
-     */
-    job.assignedUserId
-      ? db.membership.findFirst({
-          where: { userId: job.assignedUserId },
-          select: { hourlyRateCents: true },
-        })
-      : null,
+  const [clocked, organization] = await Promise.all([
+    workedMinutesByPerson(db, jobId),
     // Organization is the tenant itself, so it is read through the unscoped
     // client with the id from the verified session.
     prisma.organization.findUnique({
@@ -68,15 +59,85 @@ export async function jobCost(
     }),
   ]);
 
+  const driveMinutes = job.property?.driveMinutesFromBase ?? null;
+
+  /*
+   * Who to cost, and at whose rate.
+   *
+   * The clock is the better answer when there is one: it knows that two people
+   * were there, that one of them left at noon, and who each of them is — so each
+   * person's hours meet their own pay rate. The job's own start and finish
+   * timestamps are the fallback for work done before anybody clocked in, or on a
+   * business that never uses the clock at all, and they can only describe one
+   * person: the assignee, for the whole span.
+   *
+   * Both paths feed the same arithmetic. Neither invents an hour that was not
+   * recorded.
+   */
+  const crew: LabourInput[] =
+    clocked.length > 0
+      ? await costClockedCrew(db, clocked, driveMinutes)
+      : [await costAssignee(db, job.assignedUserId, workedMinutes(job), driveMinutes)];
+
   return calculateJobCost({
     priceCents: job.priceCents,
-    labour: {
-      workedMinutes: workedMinutes(job),
-      driveMinutes: job.property?.driveMinutesFromBase ?? null,
-      hourlyRateCents: assignee?.hourlyRateCents ?? null,
-    },
+    crew,
     driveMiles: job.property?.driveMilesFromBase ?? null,
     fuelPricePerGallonCents: organization?.fuelPricePerGallonCents ?? null,
     vehicleMpgMilli: organization?.vehicleMpgMilli ?? null,
   });
+}
+
+/**
+ * Each person who clocked in, at their own rate.
+ *
+ * The drive is counted once per person rather than once per job, because it is
+ * labour and everybody in the truck is being paid for it. Two crew on a
+ * twenty-minute drive is eighty paid minutes of travel, there and back, and a
+ * version that counted it once would understate exactly the jobs this feature
+ * exists to find.
+ */
+async function costClockedCrew(
+  db: TenantClient,
+  clocked: { userId: string; minutes: number }[],
+  driveMinutes: number | null,
+): Promise<LabourInput[]> {
+  const memberships = await db.membership.findMany({
+    where: { userId: { in: clocked.map((person) => person.userId) } },
+    select: { userId: true, hourlyRateCents: true },
+  });
+
+  const rates = new Map(memberships.map((row) => [row.userId, row.hourlyRateCents]));
+
+  return clocked.map((person) => ({
+    workedMinutes: person.minutes,
+    driveMinutes,
+    hourlyRateCents: rates.get(person.userId) ?? null,
+  }));
+}
+
+/** The old shape: one span, one person, for jobs the clock never touched. */
+async function costAssignee(
+  db: TenantClient,
+  assignedUserId: string | null,
+  minutes: number | null,
+  driveMinutes: number | null,
+): Promise<LabourInput> {
+  /*
+   * The rate belongs to the membership, so an unassigned job has no labour cost
+   * to work out — which the engine reports as a missing part rather than as free
+   * work.
+   */
+  const assignee = assignedUserId
+    ? await db.membership.findFirst({
+        where: { userId: assignedUserId },
+        select: { hourlyRateCents: true },
+      })
+    : null;
+
+  return {
+    workedMinutes: minutes,
+    driveMinutes,
+    hourlyRateCents: assignee?.hourlyRateCents ?? null,
+  };
 }

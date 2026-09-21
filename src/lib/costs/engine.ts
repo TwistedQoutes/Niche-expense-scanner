@@ -42,7 +42,18 @@ export type LabourInput = {
 export type JobCostInput = {
   /** What the customer is being charged. */
   priceCents: number;
-  labour: LabourInput;
+  /**
+   * One entry per person who worked the job.
+   *
+   * A list rather than a single figure because a crew is the normal case and a
+   * single figure cannot describe one: two people for an hour is two paid hours,
+   * and they are not necessarily paid the same. Summing their minutes and
+   * applying one rate would be wrong in whichever direction the rates differ.
+   *
+   * Empty when nobody clocked in and the job has no timestamps to fall back on,
+   * which reports as a missing part rather than as free work.
+   */
+  crew: LabourInput[];
   /** Road miles to the property and back. Null when never measured. */
   driveMiles: number | null;
   /** Pump price per gallon, null until the workspace sets it. */
@@ -172,6 +183,39 @@ export function fuelCost(input: {
 }
 
 /**
+ * A job nobody's time is recorded against.
+ *
+ * Run through the same arithmetic as a real crew member rather than special
+ * cased, so the "nothing recorded how long this took" message comes from the one
+ * place that writes it.
+ */
+const EMPTY_CREW: LabourInput = {
+  workedMinutes: null,
+  driveMinutes: null,
+  hourlyRateCents: null,
+};
+
+/**
+ * One complaint per kind of missing thing.
+ *
+ * Three unpaid crew on one job is one blank field to go and fill in. Listing it
+ * once per person turns a helpful note into a wall of red that reads as a broken
+ * screen.
+ */
+function dedupeByPart(entries: (MissingCost | null)[]): MissingCost[] {
+  const seen = new Set<MissingCost['part']>();
+  const unique: MissingCost[] = [];
+
+  for (const entry of entries) {
+    if (!entry || seen.has(entry.part)) continue;
+    seen.add(entry.part);
+    unique.push(entry);
+  }
+
+  return unique;
+}
+
+/**
  * Everything together: what went out, what came in, and the gap.
  *
  * The gap is the number this whole feature exists for. An owner who can see it
@@ -179,21 +223,41 @@ export function fuelCost(input: {
  * the one who is forty minutes away for a fifty dollar mow.
  */
 export function calculateJobCost(input: JobCostInput): JobCost {
-  const labour = labourCost(input.labour);
-  const travel = travelLabourCost(input.labour);
+  /*
+   * Each person costed at their own rate, then added up.
+   *
+   * The missing parts are deduplicated by kind below: three crew on a job where
+   * nobody has set any pay rates is one problem to fix, not three lines of the
+   * same complaint on one card.
+   */
+  const crew = input.crew.length > 0 ? input.crew : [EMPTY_CREW];
+
+  let labourCents = 0;
+  let travelLabourCents = 0;
+  const labourMissing: MissingCost[] = [];
+
+  for (const person of crew) {
+    const labour = labourCost(person);
+    const travel = travelLabourCost(person);
+
+    labourCents += labour.cents;
+    travelLabourCents += travel.cents;
+
+    if (labour.missing) labourMissing.push(labour.missing);
+    if (travel.missing) labourMissing.push(travel.missing);
+  }
+
   const fuel = fuelCost(input);
   const materialsCents = Math.max(0, input.materialsCents ?? 0);
 
-  const missing = [labour.missing, travel.missing, fuel.missing].filter(
-    (entry): entry is MissingCost => entry !== null,
-  );
+  const missing = dedupeByPart([...labourMissing, fuel.missing]);
 
-  const totalCostCents = labour.cents + travel.cents + fuel.cents + materialsCents;
+  const totalCostCents = labourCents + travelLabourCents + fuel.cents + materialsCents;
   const profitCents = input.priceCents - totalCostCents;
 
   return {
-    labourCents: labour.cents,
-    travelLabourCents: travel.cents,
+    labourCents,
+    travelLabourCents,
     fuelCents: fuel.cents,
     materialsCents,
     totalCostCents,
