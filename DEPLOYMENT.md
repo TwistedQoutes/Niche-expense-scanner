@@ -96,7 +96,9 @@ a customer receives goes nowhere. One command instead:
   --direct-url   "postgresql://…direct…"
 ```
 
-It applies the migrations against the direct URL, refuses to continue unless the
+It waits for the database to answer — a suspended serverless compute takes a
+moment to start, and one unanswered knock looks exactly like a bad secret — then
+applies the migrations against the direct URL, refuses to continue unless the
 tenant boundary checks out, generates `AUTH_SECRET` and `CRON_SECRET` and hands
 them to Vercel without printing them, deploys, then — because a first deploy
 cannot know its own address — sets `APP_URL` to the URL Vercel just assigned and
@@ -124,6 +126,29 @@ Against the **direct** URL, from your machine:
 ```bash
 DIRECT_URL="<direct url>" npm run db:migrate:deploy
 ```
+
+### If that says `P1001: Can't reach database server`
+
+Almost always the database was asleep rather than unreachable. Neon, Supabase and
+the rest suspend an idle compute to nothing and start it again on the next
+connection, and `prisma migrate deploy` makes exactly one attempt — so a compute
+that has been idle since yesterday answers the first knock with the same error it
+would give for a hostname that does not exist.
+
+```bash
+DIRECT_URL="<direct url>" npm run db:wake
+```
+
+That knocks until it answers, waiting up to ninety seconds, and then says which
+of the possible causes it actually was: asleep, a rejected password, a database
+that is not there, or a hostname that resolves but routes nowhere. For a Neon URL
+it also tries the neighbouring hostnames — the direct and pooled endpoints differ
+by one word, and deriving one from the other by hand is one keystroke away from a
+host that resolves, because Neon wildcards the domain, but answers nothing. If a
+sibling answers, it prints the host to put in `DIRECT_URL`.
+
+`scripts/deploy.sh` runs this first, so a cold start no longer reads as a broken
+secret there.
 
 Then confirm the tenant boundary is intact in the database you just created:
 

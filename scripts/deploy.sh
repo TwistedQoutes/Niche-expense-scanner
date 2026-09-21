@@ -19,13 +19,15 @@
 #
 # What it does, in order, stopping at the first thing that is wrong:
 #
-#   1. Applies every migration, against the DIRECT url — a transaction pooler
+#   1. Waits for the database to answer — a suspended serverless compute takes a
+#      moment to start, and one unanswered knock looks exactly like a bad secret.
+#   2. Applies every migration, against the DIRECT url — a transaction pooler
 #      cannot carry the advisory locks and DDL a migration needs.
-#   2. Proves the tenant boundary is intact in the database it just created, and
+#   3. Proves the tenant boundary is intact in the database it just created, and
 #      refuses to go any further if it is not.
-#   3. Generates AUTH_SECRET and CRON_SECRET if you have not supplied them, and
+#   4. Generates AUTH_SECRET and CRON_SECRET if you have not supplied them, and
 #      stores them in Vercel. They are never printed, and never written to disk.
-#   4. Deploys to production. If you did not give it a domain, it reads the one
+#   5. Deploys to production. If you did not give it a domain, it reads the one
 #      Vercel just assigned, sets APP_URL to that, and deploys again — because
 #      the first deploy cannot know its own address, and every quote link,
 #      review link and password reset is an absolute URL built from it.
@@ -48,7 +50,7 @@ while [ $# -gt 0 ]; do
     # Migrations and the isolation check, without touching Vercel. Useful on its
     # own when you only want to bring a database up to date.
     --database-only) SKIP_DEPLOY="yes";        shift 1 ;;
-    -h|--help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -80,11 +82,21 @@ fi
 
 cd "$(dirname "$0")/.."
 
-# ── 1. The schema ───────────────────────────────────────────────────────────
+# ── 1. Is there a database there at all? ────────────────────────────────────
+#
+# Before the migration, because `prisma migrate deploy` makes exactly one attempt
+# to connect and a serverless database that has been idle for a week does not
+# answer the first knock. Its error for that — P1001, "can't reach database
+# server" — is the same one it gives for a typo in the hostname, so without this
+# step a two-second cold start is indistinguishable from a broken secret.
+say "Waking the database"
+DIRECT_URL="$DIRECT_URL_ARG" node scripts/wake-database.mjs
+
+# ── 2. The schema ───────────────────────────────────────────────────────────
 say "Applying migrations (direct connection)"
 DIRECT_URL="$DIRECT_URL_ARG" DATABASE_URL="$DIRECT_URL_ARG" npx prisma migrate deploy
 
-# ── 2. The one property that cannot be fixed afterwards ─────────────────────
+# ── 3. The one property that cannot be fixed afterwards ─────────────────────
 say "Checking the tenant boundary in the database"
 DATABASE_URL="$DIRECT_URL_ARG" npm run --silent db:check-constraints \
   || fail "The tenant boundary is NOT intact. Stop: a customer list shown to the wrong business cannot be un-shown."
@@ -94,7 +106,7 @@ if [ "$SKIP_DEPLOY" = "yes" ]; then
   exit 0
 fi
 
-# ── 3. Secrets ──────────────────────────────────────────────────────────────
+# ── 4. Secrets ──────────────────────────────────────────────────────────────
 #
 # Generated here and handed straight to Vercel. Not echoed, not written to a
 # file, not left in your shell history.
@@ -146,7 +158,7 @@ if [ -n "$APP_URL_ARG" ]; then
   put_env APP_URL "$APP_URL_ARG"
 fi
 
-# ── 4. Deploy ───────────────────────────────────────────────────────────────
+# ── 5. Deploy ───────────────────────────────────────────────────────────────
 say "Deploying to production"
 DEPLOYED_URL="$(vercel deploy --prod | tail -1 | tr -d '[:space:]')"
 
