@@ -149,6 +149,21 @@ export function passwordShape(url) {
     return `${raw.length} characters, and its percent-escapes are malformed — the string was edited by hand`;
   }
 
+  /*
+   * The placeholder, still in place.
+   *
+   * Connection strings get handed around as templates with the secret blanked
+   * out, and pasting one into a secrets form without filling it in produces a
+   * rejected password like any other. It cost a round trip to work out from a
+   * length and a missing prefix, which is a silly thing to work out twice.
+   *
+   * Checked after decoding, because a URL percent-encodes the angle brackets that
+   * half of these placeholders come wrapped in.
+   */
+  if (/^[<{[]?(new|your|my|the)?[-_ ]?pass(word)?[>}\]]?$|^x{3,}$|^changeme$/i.test(password)) {
+    return `the PLACEHOLDER text "${password}" — the template was pasted without the real password filled in`;
+  }
+
   const notes = [`${password.length} characters`];
 
   if (/^[•*●·]+$/.test(password)) {

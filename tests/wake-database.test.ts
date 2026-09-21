@@ -172,3 +172,27 @@ describe('the shape of a password that was rejected', () => {
     expect(passwordShape('host=db user=postgres')).toContain('does not parse');
   });
 });
+
+describe('the placeholder nobody replaced', () => {
+  // This cost a round trip to work out from a length and a missing prefix, which
+  // is a silly thing to work out twice.
+  it.each([
+    ['NEW_PASSWORD'],
+    ['YOUR_PASSWORD'],
+    ['<password>'],
+    ['password'],
+    ['changeme'],
+    ['xxxxxxxx'],
+  ])('names %s as a placeholder rather than describing its length', (placeholder) => {
+    const shape = passwordShape(`postgresql://neondb_owner:${placeholder}@host/db`);
+
+    expect(shape).toContain('PLACEHOLDER');
+    // Safe to echo: a placeholder is not a secret, and quoting it is what makes
+    // the message act on itself.
+    expect(shape).toContain(placeholder);
+  });
+
+  it('does not mistake a real password for one', () => {
+    expect(passwordShape('postgresql://u:npg_7Kq2ZxV9mTbR4wLd@host/db')).not.toContain('PLACEHOLDER');
+  });
+});
