@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/automations",
-      "schedule": "* * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/automations?sweep=1",

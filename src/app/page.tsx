@@ -331,30 +331,10 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* ── Testimonials ────────────────────────────────────────────────── */}
-      <section className="mx-auto max-w-6xl px-4 py-16">
-        <h2 className="text-center text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-          From the field
-        </h2>
-
-        <div className="mt-10 grid gap-6 md:grid-cols-3">
-          {[1, 2, 3].map((slot) => (
-            <figure
-              key={slot}
-              className="rounded-2xl border border-dashed border-slate-300 p-6 dark:border-slate-700"
-            >
-              {/*
-                Left empty on purpose until real customers have said something
-                real. Inventing a quote from a business that does not exist is
-                the fastest way to lose the trust this page is trying to earn.
-              */}
-              <figcaption className="text-sm text-slate-400 dark:text-slate-500">
-                Customer story coming soon
-              </figcaption>
-            </figure>
-          ))}
-        </div>
-      </section>
+      {/* ── Tes
+          
+        
+  
 
       {/* ── FAQ ─────────────────────────────────────────────────────────── */}
       <section className="border-t border-slate-200 py-16 dark:border-slate-800">
