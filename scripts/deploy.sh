@@ -89,8 +89,10 @@ cd "$(dirname "$0")/.."
 # answer the first knock. Its error for that — P1001, "can't reach database
 # server" — is the same one it gives for a typo in the hostname, so without this
 # step a two-second cold start is indistinguishable from a broken secret.
+# The pooled URL comes along so that a rejected password can be narrowed down to
+# one of the two secrets rather than reported as "check your credentials".
 say "Waking the database"
-DIRECT_URL="$DIRECT_URL_ARG" node scripts/wake-database.mjs
+DIRECT_URL="$DIRECT_URL_ARG" COMPARE_URL="$DATABASE_URL_ARG" node scripts/wake-database.mjs
 
 # ── 2. The schema ───────────────────────────────────────────────────────────
 say "Applying migrations (direct connection)"

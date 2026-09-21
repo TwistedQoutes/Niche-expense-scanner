@@ -23,8 +23,13 @@
  * instead, since "the endpoint you have is not the one you want" is the other
  * way this step fails.
  *
- * Usage:  node scripts/wake-database.mjs [connection string]
- *         DIRECT_URL=… node scripts/wake-database.mjs
+ * Usage:  node scripts/wake-database.mjs [connection string] [one to compare it with]
+ *         DIRECT_URL=… COMPARE_URL=… node scripts/wake-database.mjs
+ *
+ * The second string is only ever used to narrow down a failure of the first: a
+ * deployment has two connection strings for the same database, and knowing that
+ * one of them authenticates and the other does not turns "the password is wrong"
+ * into "these two secrets disagree, and here is which one to copy".
  *
  * Prints nothing that could not go in a public build log: every message names
  * the host, never the password.
@@ -239,6 +244,48 @@ async function main() {
   }
 
   console.error(`\nCould not reach ${describe(url)}.`);
+
+  if (first.verdict.kind === 'credentials') {
+    /*
+     * A rejected password is unambiguous about what happened and silent about
+     * which of two secrets is at fault. A deployment holds two connection
+     * strings for one database — pooled for the app, direct for migrations — and
+     * they are edited at different times by hand, so the usual cause of this is
+     * that one of them still carries a password that has since been rotated.
+     *
+     * Asking the other one settles it, and turns the remedy from "check your
+     * credentials" into a specific edit to a specific secret.
+     */
+    const compare = process.argv[3] || process.env.COMPARE_URL;
+
+    if (compare && compare !== url) {
+      console.error(`\nAsking ${describe(compare)}, the other connection string, whether its password works:`);
+      const error = await knock(compare);
+      const verdict = error ? classify(error) : { kind: 'ok' };
+
+      if (verdict.kind === 'ok') {
+        console.error(`
+  it authenticates.
+
+So the two secrets disagree: the password in the string above is current and the
+one in DIRECT_URL is not. Fix: take the password out of the working string and
+put it in DIRECT_URL, changing nothing else — the two differ only in the host.`);
+        process.exit(1);
+      }
+
+      if (verdict.kind === 'credentials') {
+        console.error(`
+  it is rejected too.
+
+So both secrets carry a password this database no longer accepts, which is what
+a rotated password looks like. Fix: get a fresh connection string from your
+provider and update both — DATABASE_URL pooled, DIRECT_URL direct.`);
+        process.exit(1);
+      }
+
+      console.error(`  it fails differently (${verdict.kind}), so it settles nothing.`);
+    }
+  }
 
   if (first.verdict.advice) {
     console.error(`\n${first.verdict.advice}`);
