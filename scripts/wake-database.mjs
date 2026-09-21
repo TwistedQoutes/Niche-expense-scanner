@@ -115,6 +115,60 @@ export function siblingHosts(url) {
   return [...new Set(candidates.filter((candidate) => candidate && candidate !== host))];
 }
 
+/**
+ * What the stored password *looks* like, without saying what it is.
+ *
+ * A rejected password has more than one cause, and they are not equally likely.
+ * The string is copied out of a provider's console and pasted into a secrets
+ * form, and the two ways that goes wrong most often leave a visible mark:
+ * selecting the text by hand while the password is still masked copies the dots
+ * or asterisks themselves, and copying out of a wrapped line brings whitespace
+ * along. Both produce exactly the error a genuinely stale password produces, and
+ * there is no way to tell them apart from the outside — so describe the shape.
+ *
+ * Nothing here is the password. Its length, whether it carries the provider's
+ * prefix, and whether it contains characters a password would not: enough to
+ * recognise a bad paste, not enough to use.
+ */
+export function passwordShape(url) {
+  let raw;
+  try {
+    raw = new URL(url).password;
+  } catch {
+    return 'the string does not parse as a URL';
+  }
+
+  if (!raw) return 'there is no password in the string at all';
+
+  // Decoded, because a password is percent-encoded inside a URL and it is the
+  // decoded form the database is offered.
+  let password = raw;
+  try {
+    password = decodeURIComponent(raw);
+  } catch {
+    return `${raw.length} characters, and its percent-escapes are malformed — the string was edited by hand`;
+  }
+
+  const notes = [`${password.length} characters`];
+
+  if (/^[•*●·]+$/.test(password)) {
+    // The one that looks most like a mystery and is the least mysterious.
+    return `${password.length} characters, all of them dots or asterisks — this is the MASK, not the password. It was selected by hand while still hidden. Use the console's copy button, or reveal it first.`;
+  }
+
+  if (/[•*●·]/.test(password)) notes.push('contains dots or asterisks, which a real password does not');
+  if (/\s/.test(password)) notes.push('contains a space, tab or line break — almost certainly picked up while copying');
+  if (password !== password.trim()) notes.push('has whitespace at one end');
+  notes.push(password.startsWith('npg_') ? 'starts with npg_, as a Neon password does' : 'does not start with npg_');
+
+  const odd = [...new Set(password.replace(/[A-Za-z0-9_-]/g, ''))];
+  if (odd.length > 0 && !/[•*●·\s]/.test(password)) {
+    notes.push(`contains ${odd.length} character(s) outside the usual letters, digits, _ and -`);
+  }
+
+  return notes.join('; ');
+}
+
 function withHost(url, host) {
   const parsed = new URL(url);
   parsed.hostname = host;
@@ -256,6 +310,8 @@ async function main() {
      * Asking the other one settles it, and turns the remedy from "check your
      * credentials" into a specific edit to a specific secret.
      */
+    console.error(`\nWhat the password in that string looks like, without saying what it is:\n  ${passwordShape(url)}`);
+
     const compare = process.argv[3] || process.env.COMPARE_URL;
 
     if (compare && compare !== url) {
@@ -274,6 +330,12 @@ put it in DIRECT_URL, changing nothing else — the two differ only in the host.
       }
 
       if (verdict.kind === 'credentials') {
+        console.error(`  its password looks like: ${passwordShape(compare)}`);
+        console.error(
+          new URL(url).password === new URL(compare).password
+            ? '  and it is the same password as the other one.'
+            : '  and it is a DIFFERENT password from the other one.',
+        );
         console.error(`
   it is rejected too.
 
