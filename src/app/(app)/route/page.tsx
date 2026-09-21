@@ -3,6 +3,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { CrewNow } from '@/components/routing/CrewNow';
+import { RefreshTicker } from '@/components/routing/RefreshTicker';
 import { RoutePlanner } from '@/components/routing/RoutePlanner';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardHeader } from '@/components/ui/Card';
@@ -10,7 +12,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { hasRole, requireAuth } from '@/lib/auth/context';
 import { instantToWallClock, toLocalTimeValue } from '@/lib/dates';
 import { formatDistance } from '@/lib/geo/distance';
-import { isReordered, loadDayRoute, type RouteStop } from '@/lib/routing/repository';
+import { crewWhereabouts } from '@/lib/crew/repository';
+import { baseLocation, isReordered, loadDayRoute, type RouteStop } from '@/lib/routing/repository';
 
 export const metadata: Metadata = { title: 'Route' };
 export const dynamic = 'force-dynamic';
@@ -63,6 +66,18 @@ export default async function RoutePage({
 
   const route = await loadDayRoute(auth.db, auth.organization.id, timeZone, date);
 
+  /*
+   * Who is out there at this moment.
+   *
+   * Shown on today only. On any other day it would be a live fact pasted onto a
+   * historical or future page, which reads as though it belonged to that day —
+   * and somebody would eventually use last Tuesday's screen to decide where a
+   * crew is now.
+   */
+  const now = new Date();
+  const isToday = date === today(timeZone);
+  const crew = isToday ? await crewWhereabouts(auth.db, await baseLocation(auth.organization.id), now) : [];
+
   const changed = isReordered(
     route.booked.filter((stop) => stop.latitude !== null),
     route.suggested,
@@ -101,6 +116,13 @@ export default async function RoutePage({
           </Link>
         </div>
       </div>
+
+      {isToday ? (
+        <>
+          <CrewNow crew={crew} now={now} />
+          <RefreshTicker />
+        </>
+      ) : null}
 
       {route.booked.length === 0 ? (
         <EmptyState

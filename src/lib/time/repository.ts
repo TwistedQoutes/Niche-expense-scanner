@@ -1,6 +1,7 @@
 import { JobStatus, Prisma, Role } from '@prisma/client';
 
 import { conflict, notFound } from '@/lib/api/errors';
+import { forgetPosition } from '@/lib/crew/repository';
 import type { TenantClient } from '@/lib/db/tenant';
 import { describeProximity, type Proximity } from '@/lib/geo/distance';
 import { startJob } from '@/lib/jobs/repository';
@@ -265,6 +266,16 @@ export async function clockOut(
     where: { id: open.id },
     select: ENTRY_SELECT,
   });
+
+  /*
+   * And the product stops knowing where they are.
+   *
+   * Clocking out is the end of the working day as far as this is concerned, so
+   * the live position goes with it. Here rather than on a timer, because "we
+   * delete it eventually" and "it is gone the moment you finish" are different
+   * promises, and only one of them is easy to keep.
+   */
+  await forgetPosition(db, userId);
 
   return {
     entry,

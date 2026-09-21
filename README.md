@@ -1777,13 +1777,55 @@ Three smaller decisions worth knowing:
 
 Admin and owner only, page and endpoint both.
 
+### Where the crew are right now
+
+One question: a customer rings asking when somebody will arrive, and the person
+answering wants to say something true. The Route screen shows each crew member,
+where they are against the job they are clocked into, and how long ago that was
+known.
+
+The staleness is not a footnote. "Two minutes ago, at the property" and "forty
+minutes ago, two miles out" support completely different promises to a customer,
+and a moving dot on a map would make them look identical. So every line carries
+its own age, and anything past twelve minutes is marked.
+
+**What it cannot do, stated plainly:** a web page cannot report a position while
+the phone is locked and the browser is in the background — iOS stops the timers
+almost immediately. This is a heartbeat that fires while the app is open, not a
+tracker. Gaps are normal. A version that followed people properly would be a
+native app asking for always-on location, which is a different product and a
+different conversation.
+
+Four boundaries keep it to the question it answers, and none is a policy somebody
+has to remember:
+
+- **Clocked in, or nothing.** The endpoint refuses a position from anybody
+  without an open time entry, checked on the server against the database rather
+  than trusted from a client. Outside working hours the product does not know
+  where anybody is — not because it declines to look, but because it was never
+  told.
+- **The latest only.** One row per person, upserted, with a unique index holding
+  it. There is no history table and nothing to reconstruct one from, so "where
+  was Sam at two o'clock last Thursday" has no answer here. That is the question
+  a feature like this quietly grows into, and the schema is the place to make it
+  unanswerable.
+- **Gone at the end of the day.** Clocking out deletes the row, in the same code
+  path, so "it is gone the moment you finish" is a promise that is easy to keep.
+- **Visible to the person it is about.** While it is running, the crew member's
+  own screen says their location is shared, when it last went, and offers a Stop
+  that deletes what is already stored. Location collected invisibly and location
+  shared knowingly are different products, and the difference is entirely in
+  whether the person can see it.
+
+Owners and admins see the map; a crew member cannot look up a colleague.
+
 ### End to end
 
 ```bash
 npm run test:e2e
 ```
 
-44 tests, run twice — once as a desktop browser and once as a phone, because this
+49 tests, run twice — once as a desktop browser and once as a phone, because this
 product is used one-handed in a truck and a layout that only works at 1280px does
 not work. They drive a production build against a real Postgres: signup and the
 pipeline, tenant isolation through real cookies, a stranger accepting a quote,

@@ -78,6 +78,7 @@ export const TENANT_MODELS = new Set<string>([
   Prisma.ModelName.QuoteItem,
   Prisma.ModelName.Job,
   Prisma.ModelName.TimeEntry,
+  Prisma.ModelName.CrewPosition,
   Prisma.ModelName.Appointment,
   Prisma.ModelName.Conversation,
   Prisma.ModelName.Message,

@@ -338,6 +338,7 @@ model Organization {
   auditLogs      AuditLog[]
   invitations    Invitation[]
   timeEntries    TimeEntry[]
+  crewPositions  CrewPosition[]
 
   @@index([status])
   @@index([createdAt])
@@ -373,6 +374,12 @@ model User {
   authTokens    AuthToken[]
   assignedJobs  Job[]          @relation("JobAssignee")
   timeEntries   TimeEntry[]    @relation("TimeEntryWorker")
+  /**
+   * A list, not one row: somebody can work for two businesses, and each keeps
+   * its own last-known position for them. The uniqueness that matters is per
+   * workspace, and it lives on CrewPosition as (organizationId, userId).
+   */
+  crewPositions CrewPosition[] @relation("CrewPositionWorker")
   notifications Notification[]
   auditLogs     AuditLog[]
   sentInvites   Invitation[]   @relation("InvitedBy")
@@ -1549,6 +1556,59 @@ model TimeEntry {
   /// offer to drop it, `npm run db:check-constraints` asserts it exists — so
   /// losing it fails a deploy rather than quietly doubling somebody's timesheet.
   @@map("time_entries")
+}
+
+/// Where somebody is, right now, while they are working.
+///
+/// The narrowest thing that answers "when will they get here?" when a customer
+/// rings, and deliberately nothing more. Three properties do the work, and each
+/// is a structural guarantee rather than a rule somebody has to remember:
+///
+/// **One row per person, overwritten.** There is no history table and no
+/// `createdAt` series to reconstruct one from. A position replaces the previous
+/// position, so the database can answer "where are they now" and cannot answer
+/// "where were they at two o'clock on the fourteenth". That second question is
+/// the one this feature could quietly turn into a surveillance record, and the
+/// schema is the place to make it unanswerable.
+///
+/// **Only while clocked in.** The API refuses a position from anybody without an
+/// open TimeEntry, and clocking out deletes the row. Outside working hours the
+/// product does not know where anybody is, by construction — not by policy.
+///
+/// **Visible to the person it is about.** The crew member's own screen shows
+/// that it is being shared and when it last went. Location collected invisibly
+/// is a different product from location shared knowingly, and the difference is
+/// entirely in whether the person can see it.
+///
+/// `accuracyMetres` travels with the coordinates for the same reason it does on
+/// a clock-in: a position without it is not a fact — see src/lib/geo/distance.ts.
+model CrewPosition {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("CrewPositionWorker", fields: [userId], references: [id], onDelete: Cascade)
+
+  latitude       Float
+  longitude      Float
+  accuracyMetres Int?
+
+  /// The job they were clocked into when this was sent, so the map can say
+  /// "eight minutes from the job she is on" rather than only a bare coordinate.
+  jobId String?
+
+  /// When the phone took the reading, which is not when the row was written: a
+  /// pocket wakes up and posts a fix it took a minute ago, and showing that as
+  /// "just now" would overstate it.
+  recordedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  /// One row per person per workspace. The upsert target, and the reason a trail
+  /// cannot accumulate even if some future caller forgets.
+  @@unique([organizationId, userId])
+  @@index([organizationId, recordedAt])
+  @@map("crew_positions")
 }
 
 model Notification {

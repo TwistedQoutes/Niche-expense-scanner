@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { TextAreaField } from '@/components/ui/Field';
 import { useToast } from '@/components/ui/Toast';
 import { Card, CardHeader } from '@/components/ui/Card';
+import { ShareLocation } from '@/components/jobs/ShareLocation';
 import { ApiError, apiRequest } from '@/lib/api-client';
 import type { LOCATION_NOTES } from '@/lib/validation/time';
 
@@ -252,10 +253,22 @@ export function ClockCard({
           </button>
         )}
 
-        <p className="text-xs text-slate-400 dark:text-slate-500">
-          Your location is recorded when you tap, and only then. Nothing tracks you
-          between taps. If your phone will not share it, you can still clock in.
-        </p>
+        {/*
+          * Only while the clock is running, and it says so on this screen the
+          * whole time. Off the clock the product does not know where anybody is
+          * — the endpoint refuses a position from somebody who is not clocked
+          * in, and clocking out deletes the last one.
+          */}
+        {on ? (
+          <div className="border-t border-slate-100 pt-3 dark:border-slate-800">
+            <ShareLocation />
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400 dark:text-slate-500">
+            Your location is recorded when you tap, and only then. Nothing tracks you
+            between taps. If your phone will not share it, you can still clock in.
+          </p>
+        )}
       </div>
     </Card>
   );
