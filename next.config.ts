@@ -30,8 +30,18 @@ const contentSecurityPolicy = [
   "frame-ancestors 'none'",
   "object-src 'none'",
   "img-src 'self' data: blob: https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com https://*.ggpht.com",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' data: https://fonts.gstatic.com",
+  "style-src 'self' 'unsafe-inline'",
+  /*
+   * Fonts come from this origin and nowhere else.
+   *
+   * Geist is self-hosted out of an npm package and served as a static asset, so
+   * the Google Fonts hosts that used to be allowed here are now permission for
+   * something nothing does — and a policy that grants more than it needs is
+   * worth exactly as much as the smallest thing it forgot to forbid. Removing
+   * them also means a stylesheet injected by anything else cannot quietly pull a
+   * font from a third party and phone home with a visitor's IP in the process.
+   */
+  "font-src 'self' data:",
   "connect-src 'self' https://maps.googleapis.com",
   "worker-src 'self' blob:",
   `script-src 'self' 'unsafe-inline' https://maps.googleapis.com${
