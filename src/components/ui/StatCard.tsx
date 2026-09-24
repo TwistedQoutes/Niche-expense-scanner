@@ -69,7 +69,7 @@ export function StatCard({
 
   const shell = cn(
     'rounded-2xl bg-white p-4 ring-1 ring-slate-200/80 dark:bg-slate-900 dark:ring-slate-800',
-    href && 'transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60',
+    href && 'transition-colors duration-150 ease-out hover:bg-slate-50 dark:hover:bg-slate-800/60',
     className,
   );
 

@@ -49,8 +49,26 @@ export function Button({
       // Tells screen readers the control is busy rather than simply gone.
       aria-busy={loading || undefined}
       className={cn(
-        'inline-flex items-center justify-center rounded-xl font-medium transition-colors',
-        'disabled:cursor-not-allowed disabled:opacity-70',
+        'inline-flex items-center justify-center rounded-xl font-medium',
+        /*
+         * The press.
+         *
+         * A button that changes colour instantly reads as a link; one that
+         * settles into its new colour over a beat reads as a physical control
+         * being pushed. 150ms is the range where it registers as responsiveness
+         * rather than as animation — slow enough to perceive, fast enough that
+         * nobody waits for it.
+         *
+         * The 1% scale on press is the whole of the "feel" budget for this
+         * component. It is barely visible and it is the thing that makes a tap
+         * feel like it landed, particularly on a phone where there is no cursor
+         * to confirm anything. Both are inside the global
+         * prefers-reduced-motion rule in globals.css, so anybody who has asked
+         * their system for less movement gets none of it.
+         */
+        'transition-[color,background-color,box-shadow,transform] duration-150 ease-out',
+        'active:scale-[0.99]',
+        'disabled:cursor-not-allowed disabled:opacity-70 disabled:active:scale-100',
         // Removes the 300ms tap delay and the grey flash on mobile Safari.
         'touch-manipulation select-none',
         VARIANTS[variant],

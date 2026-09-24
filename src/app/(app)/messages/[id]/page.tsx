@@ -56,7 +56,7 @@ export default async function ConversationPage(props: { params: Promise<{ id: st
         </Link>
 
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">{name}</h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">{name}</h1>
           <Badge tone="neutral">{conversation.channel.toLowerCase()}</Badge>
           {optedOut ? <Badge tone="danger">Opted out</Badge> : null}
         </div>

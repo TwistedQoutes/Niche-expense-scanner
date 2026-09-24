@@ -58,7 +58,7 @@ export default async function PricingSettingsPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 lg:p-6">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Pricing</h1>
+        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">Pricing</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
           Your rates, your margin, your floor. Every quote starts here and can be overridden.
         </p>

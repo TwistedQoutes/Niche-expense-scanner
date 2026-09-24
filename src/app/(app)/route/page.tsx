@@ -92,7 +92,7 @@ export default async function RoutePage({
     <div className="space-y-4 p-4 lg:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Route</h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">Route</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
             The day&rsquo;s stops, and a shorter way round them.
           </p>

@@ -31,7 +31,7 @@ export function BottomNav() {
                 href={item.href}
                 aria-current={isCurrent ? 'page' : undefined}
                 className={cn(
-                  'flex min-h-14 flex-col items-center justify-center gap-0.5 text-xs font-medium transition-colors',
+                  'flex min-h-14 flex-col items-center justify-center gap-0.5 text-xs font-medium transition-colors duration-150 ease-out',
                   isCurrent
                     ? 'text-brand-700 dark:text-brand-400'
                     : 'text-slate-500 dark:text-slate-400',
@@ -40,7 +40,7 @@ export function BottomNav() {
                 <span
                   aria-hidden="true"
                   className={cn(
-                    'h-0.5 w-6 rounded-full transition-colors',
+                    'h-0.5 w-6 rounded-full transition-colors duration-150 ease-out',
                     isCurrent ? 'bg-brand-600 dark:bg-brand-400' : 'bg-transparent',
                   )}
                 />

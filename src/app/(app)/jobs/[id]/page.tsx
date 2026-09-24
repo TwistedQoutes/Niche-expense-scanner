@@ -127,7 +127,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
             <span className="tabular text-xs text-slate-400 dark:text-slate-500">{job.number}</span>
             <Badge tone={JOB_STATUS_TONE[job.status]}>{JOB_STATUS_LABEL[job.status]}</Badge>
           </div>
-          <h1 className="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-50">
+          <h1 className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">
             {job.title}
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">

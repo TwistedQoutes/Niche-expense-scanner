@@ -20,8 +20,21 @@
  */
 
 @theme {
+  /*
+   * Geist, loaded in the root layout and self-hosted from npm, with the system
+   * stack behind it for the first paint and for any environment where the font
+   * file does not arrive.
+   *
+   * The typeface is doing more work here than a typeface usually does. The
+   * system stack is not *bad* — it is invisible, which is different. It makes an
+   * interface read as an unstyled document that happens to have colours, because
+   * it is the same face as the operating system's own menus. A face chosen on
+   * purpose is most of the distance between "somebody built this" and "somebody
+   * designed this", and it costs one line and no runtime.
+   */
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
 
   /* The brand accent. */
   --color-brand-50: #ecfdf5;
@@ -56,6 +69,23 @@
      keyboard users so tapping a button on a phone stays clean. */
   :focus-visible {
     @apply outline-brand-600 dark:outline-brand-400 outline-2 outline-offset-2;
+  }
+
+  /*
+   * Headings tighten as they grow.
+   *
+   * Letter-spacing that suits body text is too loose at 24px and above: large
+   * text at default tracking reads as stretched, and it is one of the reliable
+   * differences between type that was set and type that was merely sized. The
+   * values are small on purpose — this should be felt rather than noticed.
+   */
+  h1 {
+    letter-spacing: -0.021em;
+  }
+
+  h2,
+  h3 {
+    letter-spacing: -0.014em;
   }
 
   /* Money and counts line up when the digits are the same width. */

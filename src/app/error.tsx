@@ -25,7 +25,7 @@ export default function GlobalError({
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
-      <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
+      <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">
         Something went wrong
       </h1>
       <p className="max-w-sm text-sm text-slate-600 dark:text-slate-400">

@@ -58,7 +58,7 @@ export default async function QuotePage(props: { params: Promise<{ id: string }>
         </Link>
 
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="tabular text-xl font-semibold text-slate-900 dark:text-slate-50">
+          <h1 className="tabular text-2xl font-semibold text-slate-900 dark:text-slate-50">
             {quote.number}
           </h1>
           <Badge tone={TONES[status]}>{status.replace('_', ' ').toLowerCase()}</Badge>

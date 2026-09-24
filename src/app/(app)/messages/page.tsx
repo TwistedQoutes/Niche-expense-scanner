@@ -40,7 +40,7 @@ export default async function MessagesPage() {
   return (
     <div className="space-y-4 p-4 lg:p-6">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Messages</h1>
+        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">Messages</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
           Every text and email, one thread per customer.
         </p>

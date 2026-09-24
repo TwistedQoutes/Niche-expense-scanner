@@ -23,7 +23,7 @@ export default async function NewLeadPage() {
         >
           ← Back to the pipeline
         </Link>
-        <h1 className="mt-2 text-xl font-semibold text-slate-900 dark:text-slate-50">New lead</h1>
+        <h1 className="mt-2 text-2xl font-semibold text-slate-900 dark:text-slate-50">New lead</h1>
       </div>
 
       <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200/80 lg:p-6 dark:bg-slate-900 dark:ring-slate-800">

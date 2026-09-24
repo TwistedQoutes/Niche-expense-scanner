@@ -47,7 +47,7 @@ export function ForgotPasswordForm({ emailEnabled = true }: { emailEnabled?: boo
   if (!emailEnabled) {
     return (
       <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-bold tracking-tight">Reset your password</h1>
+        <h1 className="text-2xl font-semibold">Reset your password</h1>
 
         <div className="mt-6 space-y-4">
           <Alert tone="warning" title="This site cannot send email yet">
@@ -75,7 +75,7 @@ export function ForgotPasswordForm({ emailEnabled = true }: { emailEnabled?: boo
 
   return (
     <div className="w-full max-w-sm">
-      <h1 className="text-2xl font-bold tracking-tight">Reset your password</h1>
+      <h1 className="text-2xl font-semibold">Reset your password</h1>
 
       {sent ? (
         <div className="mt-6 space-y-4">

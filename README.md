@@ -1819,6 +1819,46 @@ has to remember:
 
 Owners and admins see the map; a crew member cannot look up a colleague.
 
+### How it looks
+
+Three things carry most of the difference between software that reads as
+competent and software that reads as finished, and none of them is decoration.
+
+**The typeface.** Geist, self-hosted from an npm package rather than fetched
+from Google at build time — so a build never depends on egress to
+fonts.googleapis.com, no page load touches a third-party domain, and no request
+to Google carries a customer's IP. The system stack is not bad, it is
+*invisible*: it makes an interface read as an unstyled document with colours,
+because it is the face the operating system's own menus use. Headings tighten as
+they grow (-0.021em at h1), which is one of the reliable differences between type
+that was set and type that was merely sized.
+
+**Loading states.** A `loading.tsx` per screen, shaped like the page it stands in
+for, because the gap between tapping and seeing is where software feels cheap —
+and it feels slow there even when it is fast. Two rules were learned the hard way
+and are written down in `src/components/ui/PageSkeleton.tsx`:
+
+- **Not on a page that gates by role.** A Suspense boundary streams the response,
+  so the 200 is already sent by the time `notFound()` throws; `/admin` started
+  answering an unauthorised prober with a 200 and a not-found body instead of a
+  404. The tenant-isolation spec asserts that status directly, which is how it
+  was caught rather than shipped.
+- **Not on a page built of form fields.** The form arrives as a streamed chunk
+  React inserts, and somebody who taps a field and types inside that window loses
+  the characters that went into the markup being replaced. The
+  address-autocomplete spec caught "12 Oak Lane" reaching the server as "Oak
+  Lane" — a customer's house number quietly missing from a lead.
+
+**Motion, at 150ms.** Not animation: buttons that settle into their colour rather
+than snapping, a 1% scale on press so a tap registers on a phone with no cursor
+to confirm it, cards that lift a shadow's worth on hover. All of it inside the
+`prefers-reduced-motion` rule that was already there, so anybody who asked their
+system for less movement gets none of it.
+
+What was deliberately not done: gradients, glass, blobs. Those read as template,
+not as expensive. The palette, the spacing and the status colours were already
+coherent — the risk in a polish pass is undoing that.
+
 ### End to end
 
 ```bash

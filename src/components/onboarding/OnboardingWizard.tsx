@@ -181,7 +181,7 @@ export function OnboardingWizard({ initial }: { initial: OnboardingState }) {
         <p className="text-xs font-medium tracking-wide text-slate-400 uppercase dark:text-slate-500">
           Step {index + 1} of {ONBOARDING_STEPS.length}
         </p>
-        <h1 className="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-50">
+        <h1 className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">
           {step.label}
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">{step.blurb}</p>

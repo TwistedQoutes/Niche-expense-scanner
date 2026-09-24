@@ -34,7 +34,7 @@ export default async function DashboardPage() {
     <div className="mx-auto max-w-6xl space-y-6 p-4 lg:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">
             {firstName ? `Good to see you, ${firstName}` : 'Dashboard'}
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">

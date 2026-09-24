@@ -99,7 +99,7 @@ export function PipelineBoard({
               setDraggingId(null);
             }}
             className={cn(
-              'flex w-72 shrink-0 flex-col rounded-2xl bg-slate-100/70 p-2 transition-colors dark:bg-slate-900/60',
+              'flex w-72 shrink-0 flex-col rounded-2xl bg-slate-100/70 p-2 transition-colors duration-150 ease-out dark:bg-slate-900/60',
               isTarget && 'bg-brand-50 ring-brand-300 ring-2 dark:bg-brand-950/40 dark:ring-brand-800',
             )}
           >

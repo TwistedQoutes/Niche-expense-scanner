@@ -39,7 +39,7 @@ export default async function JobsPage({
     <div className="space-y-4 p-4 lg:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Jobs</h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">Jobs</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
             Work you have won. Give it a date, then mark it done.
           </p>

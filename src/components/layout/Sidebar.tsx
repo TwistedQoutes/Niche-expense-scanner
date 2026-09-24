@@ -54,7 +54,8 @@ export function Sidebar({
                       href={item.href}
                       aria-current={isCurrent ? 'page' : undefined}
                       className={cn(
-                        'flex min-h-9 items-center rounded-lg px-3 text-sm font-medium transition-colors',
+                        'flex min-h-9 items-center rounded-lg px-3 text-sm font-medium',
+                        'transition-colors duration-150 ease-out',
                         isCurrent
                           ? 'bg-brand-50 text-brand-800 dark:bg-brand-950/60 dark:text-brand-200'
                           : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100',

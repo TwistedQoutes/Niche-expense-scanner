@@ -68,7 +68,7 @@ export function ResetPasswordForm({ token }: { token: string | undefined }) {
 
   return (
     <div className="w-full max-w-sm">
-      <h1 className="text-2xl font-bold tracking-tight">Choose a new password</h1>
+      <h1 className="text-2xl font-semibold">Choose a new password</h1>
       <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
         This also signs you out everywhere else.
       </p>

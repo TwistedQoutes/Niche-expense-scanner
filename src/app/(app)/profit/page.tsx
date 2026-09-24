@@ -77,7 +77,7 @@ export default async function ProfitPage({
     <div className="space-y-4 p-4 lg:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Profit</h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">Profit</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
             What the work kept, once the hours, the driving and the fuel are taken off.
           </p>

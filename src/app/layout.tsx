@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 
+import { GeistSans } from 'geist/font/sans';
 import { ToastProvider } from '@/components/ui/Toast';
 
 import './globals.css';
@@ -36,7 +37,23 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    /*
+     * The typeface, applied at the root.
+     *
+     * Self-hosted from an npm package rather than fetched from Google at build
+     * time. Two reasons, and the second is the one that matters: a build that
+     * reaches out to fonts.googleapis.com fails on any machine or CI runner
+     * without egress to it, which turns a font choice into a deployment
+     * dependency. And nothing about a visitor's page load touches a third-party
+     * domain, so there is no extra connection to negotiate before text can
+     * render — and no request to Google carrying your customers' IP addresses.
+     *
+     * `GeistSans.variable` sets --font-geist-sans, which globals.css maps onto
+     * Tailwind's --font-sans. Next inlines the @font-face with font-display:
+     * swap and a size-adjusted fallback, so the first paint uses the system font
+     * at matched metrics and the swap does not shift the layout.
+     */
+    <html lang="en" className={GeistSans.variable}>
       <body className="min-h-dvh font-sans">
         <ToastProvider>{children}</ToastProvider>
       </body>

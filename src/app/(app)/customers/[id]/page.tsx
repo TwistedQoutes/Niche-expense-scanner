@@ -46,7 +46,7 @@ export default async function CustomerPage(props: { params: Promise<{ id: string
         </Link>
 
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">{name}</h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">{name}</h1>
           {customer.tags.map((tag) => (
             <Badge key={tag} tone="neutral">
               {tag}

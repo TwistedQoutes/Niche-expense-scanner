@@ -66,7 +66,7 @@ export default async function AnalyticsPage({
     <div className="space-y-4 p-4 lg:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Analytics</h1>
+          <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">Analytics</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
             Where the work comes from, what it is worth, and how fast you answer.
           </p>

@@ -30,7 +30,7 @@ export default async function TeamPage() {
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Team</h1>
+        <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Team</h1>
         <p className="text-sm text-slate-600 dark:text-slate-400">
           Invite the people who work with you, and decide what each of them can reach.
         </p>
