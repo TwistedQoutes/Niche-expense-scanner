@@ -1388,6 +1388,52 @@ local development and loud enough in production logs to be noticed.
 
 ---
 
+## Your data: export and deletion
+
+Both live in **Settings → Your data**, and both are the owner's alone. Admins
+and crew see neither: one is the whole customer list in a file, the other ends
+the business's account.
+
+**Export** (`GET /api/workspace/export`) is a zip: one CSV per table, which
+opens in Excel or Google Sheets, the same records in `data.json` for moving to
+other software, and a `README.txt` explaining cents, basis points and UTC.
+Every tenant table is read through the tenant client, so the organization filter
+is the same one that guards every other query. `tests/workspace-export.test.ts`
+fails if a model joins `TENANT_MODELS` without a table in the export.
+
+- Password and token hashes are never included. Photos are listed with a
+  download link rather than packed into the zip, which keeps the file well
+  under a serverless response limit.
+- Cells a stranger could have typed are defused for spreadsheets: a lead whose
+  description starts with `=` is written as `'=…`, so it cannot run as a
+  formula in the owner's copy.
+- Each download is recorded in the audit log.
+
+**Deletion** (`POST /api/workspace/delete`) asks for the business name and the
+owner's password, then runs in an order chosen so that a failure is always the
+safe kind (`src/lib/workspace/delete.ts`):
+
+1. A live Stripe subscription is cancelled first. If Stripe cannot be reached,
+   nothing is deleted and the owner is told to try again — the alternative is a
+   card charged monthly for a workspace that no longer exists.
+2. One transaction deletes the Organization row, whose cascade takes every
+   tenant table with it, and the sign-in accounts of members who belong to no
+   other workspace. Platform admins are never deleted this way.
+3. Photo files are removed from storage last. One that fails is logged with the
+   key prefix to clear by hand.
+
+Other members are signed out on their next request, because every request
+re-reads the membership. `tests/e2e/workspace-data.spec.ts` checks the result
+in the database itself: after a deletion, no row in any table carries the
+workspace's id, and both the owner's and a crew member's accounts are gone.
+
+Not built yet: erasing one customer, and everything that mentions them, from
+inside the app. Deleting a customer through the API leaves their leads,
+quotes and messages in place with the link cleared, so the privacy page tells
+people to email for a single-person erasure.
+
+---
+
 ## The landing page
 
 `/` is the front door, and the only page most people see before deciding
@@ -1401,7 +1447,7 @@ them when they are real, with permission from the people quoted.
 
 **Every claim is a feature.** Each line of copy was checked against the code
 before it went in, and several inherited ones came out because it was not true:
-there is no web intake form, no customer import, no data export, accepting a
+there is no web intake form and no customer import, accepting a
 quote creates a job but does not schedule it, and a customer's texted reply to
 the missed-call message is not read by the AI — it lands in the inbox, and
 scoring works from the lead's own fields. The "Honest by design" band lists

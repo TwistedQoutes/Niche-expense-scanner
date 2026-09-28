@@ -1,6 +1,7 @@
 import { Role } from '@prisma/client';
 import type { Metadata } from 'next';
 
+import { DataControls } from '@/components/settings/DataControls';
 import { SettingsForm } from '@/components/settings/SettingsForm';
 import { Alert } from '@/components/ui/Alert';
 import { Card, CardHeader } from '@/components/ui/Card';
@@ -75,6 +76,16 @@ export default async function SettingsPage() {
           />
         </div>
       </Card>
+
+      {/* The whole customer list out, or everything gone: the owner's call alone. */}
+      {auth.role === Role.OWNER ? (
+        <Card>
+          <CardHeader title="Your data" description="It belongs to your business. Take a copy, or take it all away." />
+          <div className="p-4 pt-0">
+            <DataControls businessName={organization.name} isDemo={auth.organization.isDemo} />
+          </div>
+        </Card>
+      ) : null}
     </div>
   );
 }

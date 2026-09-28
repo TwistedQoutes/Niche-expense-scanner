@@ -168,7 +168,7 @@ export default async function DashboardPage() {
           {summary.recentLeads.length === 0 ? (
             <EmptyState
               title="No leads yet"
-              description="They will appear here the moment someone fills in your intake form or you add one by hand."
+              description="They will appear here the moment you add one, or a call you miss is texted back."
               action={
                 <Link href="/leads/new">
                   <Button size="sm" variant="secondary">

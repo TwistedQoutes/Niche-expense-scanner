@@ -70,7 +70,7 @@ export function tierForPriceId(priceId: string): PlanTier | null {
 async function stripePost<T>(
   path: string,
   params: Record<string, string>,
-  options: { idempotencyKey?: string } = {},
+  options: { idempotencyKey?: string; method?: 'POST' | 'DELETE' } = {},
 ): Promise<T> {
   const env = getEnv();
 
@@ -84,7 +84,7 @@ async function stripePost<T>(
   let response: Response;
   try {
     response = await fetch(`${env.STRIPE_BASE_URL.replace(/\/+$/, '')}${path}`, {
-      method: 'POST',
+      method: options.method ?? 'POST',
       signal: controller.signal,
       headers: {
         // Basic auth with the secret key as the username, which is Stripe's
@@ -209,4 +209,25 @@ export async function createPortalSession(input: {
     customer: input.stripeCustomerId,
     return_url: input.returnUrl,
   });
+}
+
+/**
+ * Ends a subscription now, not at the end of the period.
+ *
+ * Used when a workspace is deleted: the business has asked for everything to
+ * be gone, and a subscription left running would bill them for a workspace that
+ * no longer exists. Stripe's own default for an immediate cancel is no refund
+ * and no final invoice, which matches the product's "cancel anytime" terms.
+ *
+ * A subscription Stripe no longer knows (already cancelled in the dashboard,
+ * or deleted in test mode) is treated as done rather than as a failure: the
+ * outcome the caller needs — no more charges — is already true.
+ */
+export async function cancelSubscriptionNow(subscriptionId: string): Promise<void> {
+  try {
+    await stripePost(`/subscriptions/${encodeURIComponent(subscriptionId)}`, {}, { method: 'DELETE' });
+  } catch (error) {
+    if (error instanceof StripeError && error.stripeCode === 'resource_missing') return;
+    throw error;
+  }
 }

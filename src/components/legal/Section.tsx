@@ -2,8 +2,13 @@ import type { ReactNode } from 'react';
 
 import { getPublicConfig } from '@/lib/env';
 
-/** The date the legal text last changed. Update it when you edit the wording. */
+/**
+ * The dates the legal texts last changed. Update the right one when you edit
+ * the wording — each page states its own, and a policy that claims a change it
+ * did not have is as misleading as one that hides a change it did.
+ */
 export const LAST_UPDATED = '11 September 2026';
+export const PRIVACY_LAST_UPDATED = '28 September 2026';
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
