@@ -77,7 +77,8 @@ test('password reset says so when the deployment cannot send email', async ({ pa
   await expect(page.getByText('This site cannot send email yet')).toBeVisible();
   // And it does not take an address it cannot do anything with.
   await expect(page.getByRole('button', { name: /send the reset link/i })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /back to sign in/i })).toBeVisible();
+  // A link that looks like a button: it navigates, so it is announced as a link.
+  await expect(page.getByRole('link', { name: /back to sign in/i })).toBeVisible();
 
   await expectNoServerError(page);
 });

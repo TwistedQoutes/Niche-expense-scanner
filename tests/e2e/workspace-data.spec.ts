@@ -220,7 +220,7 @@ test.describe('your data', () => {
     // And the account cannot sign back in.
     await page.goto('/login');
     await page.getByLabel('Email').fill(owner.email);
-    await page.getByLabel('Password').fill(TEST_PASSWORD);
+    await page.getByLabel('Password', { exact: true }).fill(TEST_PASSWORD);
     await page.getByRole('button', { name: /sign in/i }).click();
     await expect(page.getByText(/did not match/i)).toBeVisible();
   });

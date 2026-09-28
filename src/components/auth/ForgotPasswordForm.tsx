@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 
 import { Alert } from '@/components/ui/Alert';
-import { Button } from '@/components/ui/Button';
+import { Button, buttonClasses } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/Field';
 import { ApiError, apiRequest } from '@/lib/api-client';
 
@@ -46,8 +46,8 @@ export function ForgotPasswordForm({ emailEnabled = true }: { emailEnabled?: boo
 
   if (!emailEnabled) {
     return (
-      <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-semibold">Reset your password</h1>
+      <div className="w-full">
+        <h1 className="text-3xl font-semibold tracking-[-0.03em] text-slate-900 dark:text-slate-50">Reset your password</h1>
 
         <div className="mt-6 space-y-4">
           <Alert tone="warning" title="This site cannot send email yet">
@@ -58,15 +58,13 @@ export function ForgotPasswordForm({ emailEnabled = true }: { emailEnabled?: boo
             </p>
             <p className="mt-2">
               If you run this deployment, setting <code>EMAIL_DRIVER</code> and{' '}
-              <code>RESEND_API_KEY</code> turns this screen on. Otherwise, ask whoever
-              does: an owner or admin can also change a password for you directly.
+              <code>RESEND_API_KEY</code> turns this screen on. Otherwise, contact whoever
+              runs it.
             </p>
           </Alert>
 
-          <Link href="/login" className="block">
-            <Button variant="secondary" size="lg" fullWidth>
-              Back to sign in
-            </Button>
+          <Link href="/login" className={buttonClasses({ variant: 'secondary', size: 'lg', fullWidth: true })}>
+            Back to sign in
           </Link>
         </div>
       </div>
@@ -74,8 +72,8 @@ export function ForgotPasswordForm({ emailEnabled = true }: { emailEnabled?: boo
   }
 
   return (
-    <div className="w-full max-w-sm">
-      <h1 className="text-2xl font-semibold">Reset your password</h1>
+    <div className="w-full">
+      <h1 className="text-3xl font-semibold tracking-[-0.03em] text-slate-900 dark:text-slate-50">Reset your password</h1>
 
       {sent ? (
         <div className="mt-6 space-y-4">
@@ -95,15 +93,13 @@ export function ForgotPasswordForm({ emailEnabled = true }: { emailEnabled?: boo
             </button>
             .
           </p>
-          <Link href="/login" className="block">
-            <Button variant="secondary" size="lg" fullWidth>
-              Back to sign in
-            </Button>
+          <Link href="/login" className={buttonClasses({ variant: 'secondary', size: 'lg', fullWidth: true })}>
+            Back to sign in
           </Link>
         </div>
       ) : (
         <>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          <p className="mt-2 text-slate-600 dark:text-slate-400">
             We&rsquo;ll email you a link to choose a new one.
           </p>
 
@@ -120,7 +116,7 @@ export function ForgotPasswordForm({ emailEnabled = true }: { emailEnabled?: boo
               autoCapitalize="none"
               inputMode="email"
               spellCheck={false}
-              placeholder="you@studio.com"
+              placeholder="you@yourbusiness.com"
             />
 
             <Button type="submit" size="lg" fullWidth loading={submitting}>
@@ -128,7 +124,7 @@ export function ForgotPasswordForm({ emailEnabled = true }: { emailEnabled?: boo
             </Button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
+          <p className="mt-8 border-t border-slate-200 pt-6 text-sm text-slate-600 dark:border-slate-800 dark:text-slate-400">
             <Link href="/login" className="text-brand-600 dark:text-brand-400 font-medium hover:underline">
               Back to sign in
             </Link>

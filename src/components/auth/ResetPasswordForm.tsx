@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 
 import { Alert } from '@/components/ui/Alert';
-import { Button } from '@/components/ui/Button';
-import { TextField } from '@/components/ui/Field';
+import { PasswordField } from '@/components/auth/PasswordField';
+import { Button, buttonClasses } from '@/components/ui/Button';
 import { ApiError, apiRequest } from '@/lib/api-client';
 import { PASSWORD_MIN_LENGTH } from '@/lib/validation/auth';
 
@@ -53,23 +53,21 @@ export function ResetPasswordForm({ token }: { token: string | undefined }) {
 
   if (!token) {
     return (
-      <div className="w-full max-w-sm">
+      <div className="w-full">
         <Alert tone="error" title="That link is incomplete">
           Open the link from your email again, or request a fresh one.
         </Alert>
-        <Link href="/forgot-password" className="mt-6 block">
-          <Button size="lg" fullWidth>
-            Request a new link
-          </Button>
+        <Link href="/forgot-password" className={buttonClasses({ size: 'lg', fullWidth: true, className: 'mt-6' })}>
+          Request a new link
         </Link>
       </div>
     );
   }
 
   return (
-    <div className="w-full max-w-sm">
-      <h1 className="text-2xl font-semibold">Choose a new password</h1>
-      <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+    <div className="w-full">
+      <h1 className="text-3xl font-semibold tracking-[-0.03em] text-slate-900 dark:text-slate-50">Choose a new password</h1>
+      <p className="mt-2 text-slate-600 dark:text-slate-400">
         This also signs you out everywhere else.
       </p>
 
@@ -83,9 +81,8 @@ export function ResetPasswordForm({ token }: { token: string | undefined }) {
           </Alert>
         ) : null}
 
-        <TextField
+        <PasswordField
           label="New password"
-          type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           error={fieldErrors.password}
@@ -94,9 +91,8 @@ export function ResetPasswordForm({ token }: { token: string | undefined }) {
           autoComplete="new-password"
         />
 
-        <TextField
+        <PasswordField
           label="Confirm new password"
-          type="password"
           value={confirm}
           onChange={(event) => setConfirm(event.target.value)}
           error={fieldErrors.confirm}

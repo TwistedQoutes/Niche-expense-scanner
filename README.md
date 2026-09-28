@@ -1473,6 +1473,19 @@ otherwise spaces Geist's words unevenly; the comment on `line()` explains why.
 Because the card's URL is absolute, it uses `APP_URL` — set that to the real
 domain or previews will point at the wrong host.
 
+**The sign-in screens** (`src/app/(auth)/layout.tsx`) continue the home page:
+the form sits on the hero's grid and glow, and on wide screens a dark panel
+beside it (`AuthShowcase`) repeats the headline over the missed-call picture,
+with a "quote accepted — job created" card landing a moment after the page.
+The motion is CSS only (`rise`, `float`, `pop`, `sheen` in `globals.css`), plays
+on arrival rather than while anyone is typing, and is switched off entirely
+under `prefers-reduced-motion`. Their copy got the same check as the home page:
+the signup phone field is the business's number (it routes missed calls), not
+an alert channel; the trial shown is `TRIAL_DAYS`; and the verify and reset
+screens no longer promise a resend button or an admin password reset that do
+not exist. `tests/e2e/auth-pages.spec.ts` covers the copy, the password toggle
+and the phone layout.
+
 `tests/e2e/landing.spec.ts` checks that the page renders, that every "Start
 free" goes to `/signup`, that the share card resolves as a PNG, that the page
 requests nothing from another host, and that it fits a 360px phone without

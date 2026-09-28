@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 
 import { Alert } from '@/components/ui/Alert';
-import { Button } from '@/components/ui/Button';
+import { buttonClasses } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { ApiError, apiRequest } from '@/lib/api-client';
 
@@ -13,7 +13,7 @@ import { ApiError, apiRequest } from '@/lib/api-client';
  *
  * Redemption is a POST from the client rather than a GET on page load, because
  * mail clients and security scanners prefetch links — a GET that consumes a
- * single-use token would be spent before the artist ever clicked it.
+ * single-use token would be spent before the owner ever clicked it.
  */
 export function VerifyEmail({ token }: { token: string | undefined }) {
   const [state, setState] = useState<'working' | 'done' | 'failed'>(token ? 'working' : 'failed');
@@ -43,7 +43,7 @@ export function VerifyEmail({ token }: { token: string | undefined }) {
   }, [token]);
 
   return (
-    <div className="w-full max-w-sm">
+    <div className="w-full">
       {state === 'working' ? (
         <p className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
           <Spinner className="size-4" label="Confirming" />
@@ -51,24 +51,27 @@ export function VerifyEmail({ token }: { token: string | undefined }) {
         </p>
       ) : state === 'done' ? (
         <>
+          {/* Says only what happened. It used to promise that confirming made
+              the account recoverable, but a password reset works whether or not
+              the address was ever confirmed. */}
           <Alert tone="success" title="Email confirmed">
-            You can now recover your account if you ever forget your password.
+            Thanks — your address is confirmed.
           </Alert>
-          <Link href="/dashboard" className="mt-6 block">
-            <Button size="lg" fullWidth>
-              Go to my expenses
-            </Button>
+          <Link href="/dashboard" className={buttonClasses({ size: 'lg', fullWidth: true, className: 'mt-6' })}>
+            Go to my dashboard
           </Link>
         </>
       ) : (
         <>
+          {/* No promise of a resend button: there is none yet. */}
           <Alert tone="error" title="That link didn't work">
-            {message} Links expire after three days — you can send a fresh one from Settings.
+            {message} Links expire after three days.
           </Alert>
-          <Link href="/settings" className="mt-6 block">
-            <Button size="lg" variant="secondary" fullWidth>
-              Open Settings
-            </Button>
+          <Link
+            href="/dashboard"
+            className={buttonClasses({ size: 'lg', variant: 'secondary', fullWidth: true, className: 'mt-6' })}
+          >
+            Go to my dashboard
           </Link>
         </>
       )}
