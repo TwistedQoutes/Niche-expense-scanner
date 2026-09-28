@@ -124,3 +124,26 @@
     40px 100%;
   background-attachment: local, local;
 }
+
+/*
+ * The hero's texture: a faint grid that fades out from the top.
+ *
+ * One place on the whole site, and quiet enough to be noticed only when it is
+ * removed. It gives the headline a surface to sit on instead of floating in
+ * white, which is most of the difference between a hero that looks placed and
+ * one that looks like the top of a document. The mask is what keeps it from
+ * reading as graph paper: it is strongest behind the headline and gone before
+ * the product shot.
+ */
+@utility hero-grid {
+  --grid-line: rgb(15 23 42 / 0.055);
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 75% 55% at 50% 0%, #000 35%, transparent 100%);
+
+  @media (prefers-color-scheme: dark) {
+    --grid-line: rgb(255 255 255 / 0.05);
+  }
+}

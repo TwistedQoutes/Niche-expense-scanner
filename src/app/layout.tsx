@@ -2,10 +2,21 @@ import type { Metadata, Viewport } from 'next';
 
 import { GeistSans } from 'geist/font/sans';
 import { ToastProvider } from '@/components/ui/Toast';
+import { getPublicConfig } from '@/lib/env';
 
 import './globals.css';
 
 export const metadata: Metadata = {
+  /*
+   * Where absolute URLs in the metadata point.
+   *
+   * The share card (opengraph-image.tsx) is referenced by URL, and a messaging
+   * app fetching it needs an absolute one — a relative path unfurls as nothing.
+   * Taken from APP_URL, the same variable every emailed and texted link is built
+   * from, so the card and the links always name the same domain. Read at build,
+   * which is when Vercel has the production value in hand.
+   */
+  metadataBase: new URL(getPublicConfig().appUrl),
   title: {
     default: 'JobFlow AI — Turn Leads Into Jobs. Automatically.',
     template: '%s · JobFlow AI',
@@ -20,7 +31,11 @@ export const metadata: Metadata = {
     description:
       'Stop losing customers because you were too busy to answer the phone. Lead capture, AI qualification, instant quotes and automatic follow-up for local service businesses.',
     type: 'website',
+    siteName: 'JobFlow AI',
   },
+  // The large card, so the image fills the preview instead of sitting in a
+  // thumbnail beside the title.
+  twitter: { card: 'summary_large_image' },
 };
 
 export const viewport: Viewport = {

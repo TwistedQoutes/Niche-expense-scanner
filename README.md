@@ -1388,6 +1388,52 @@ local development and loud enough in production logs to be noticed.
 
 ---
 
+## The landing page
+
+`/` is the front door, and the only page most people see before deciding
+whether to sign up. Three decisions shape it.
+
+**No invented proof.** There are no testimonials, customer logos, star ratings
+or "trusted by 2,000 businesses" counts, because there are none yet to show. A
+made-up quote from a made-up landscaper is the one thing on a page like this that
+a real landscaper can smell, and it poisons every true sentence around it. Add
+them when they are real, with permission from the people quoted.
+
+**Every claim is a feature.** Each line of copy was checked against the code
+before it went in, and several inherited ones came out because it was not true:
+there is no web intake form, no customer import, no data export, accepting a
+quote creates a job but does not schedule it, and a customer's texted reply to
+the missed-call message is not read by the AI — it lands in the inbox, and
+scoring works from the lead's own fields. The "Honest by design" band lists
+only rules the code enforces — prices stripped from AI drafts
+(`src/lib/ai/guardrails.ts`), lawn size entered rather than read off a satellite
+photo (`src/lib/maps/client.ts`), unknown costs excluded rather than counted as
+zero (`src/lib/costs/engine.ts`), crew positions deleted at clock-out
+(`src/lib/crew/repository.ts`). When a feature changes, change its sentence.
+
+**The product pictures are code, not screenshots.** `ProductShot` and the three
+figures in `src/components/marketing/Visuals.tsx` are built from the same
+Tailwind classes as the app. They stay sharp at any size, follow dark mode,
+weigh nothing, and cannot leak a real customer's name — every person in them is
+fictional and every number is on the 555 exchange. The cost is that they drift
+if the app's look changes, so they are worth a glance whenever the dashboard is
+restyled.
+
+The share card (`src/app/opengraph-image.tsx`) is what a link to the site
+unfurls into in iMessage, WhatsApp and Slack. It is rendered once at build time
+from the Geist files in `node_modules`, so it makes no network request. Its text
+is joined with no-break spaces because Satori, the renderer behind `next/og`,
+otherwise spaces Geist's words unevenly; the comment on `line()` explains why.
+Because the card's URL is absolute, it uses `APP_URL` — set that to the real
+domain or previews will point at the wrong host.
+
+`tests/e2e/landing.spec.ts` checks that the page renders, that every "Start
+free" goes to `/signup`, that the share card resolves as a PNG, that the page
+requests nothing from another host, and that it fits a 360px phone without
+sideways scrolling.
+
+---
+
 ## Local development
 
 ```bash

@@ -24,6 +24,36 @@ const SIZES: Record<Size, string> = {
   lg: 'min-h-12 px-5 text-base gap-2',
 };
 
+/**
+ * The look of a button, for things that are not buttons.
+ *
+ * A link to /signup should *look* like the primary action and *be* a link:
+ * nesting a <button> inside an <a> is invalid HTML, and a screen reader meets
+ * two controls where there is one, announced as a button that navigates. So a
+ * Link takes these classes instead, and the look stays defined in one place.
+ */
+export function buttonClasses({
+  variant = 'primary',
+  size = 'md',
+  fullWidth = false,
+  className,
+}: {
+  variant?: Variant;
+  size?: Size;
+  fullWidth?: boolean;
+  className?: string;
+} = {}): string {
+  return cn(
+    'inline-flex items-center justify-center rounded-xl font-medium',
+    'transition-[color,background-color,box-shadow,transform] duration-150 ease-out',
+    'active:scale-[0.99] touch-manipulation select-none',
+    VARIANTS[variant],
+    SIZES[size],
+    fullWidth && 'w-full',
+    className,
+  );
+}
+
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: Variant;
   size?: Size;
