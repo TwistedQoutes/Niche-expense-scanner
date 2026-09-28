@@ -138,6 +138,114 @@ function PayRate({ member }: { member: TeamMember }) {
   );
 }
 
+/**
+ * Resetting a teammate's password, from their row.
+ *
+ * Nobody here types a password for anyone: both options produce the same
+ * one-hour link the sign-in page's "Forgot your password?" sends, and the
+ * teammate chooses the new password themselves. Email is offered first because
+ * the owner never sees that link. The copyable link is for crew who never check
+ * the email they signed up with — and the server refuses it for anyone whose
+ * account reaches beyond this business, saying why.
+ */
+function ResetPassword({ member, emailConfigured }: { member: TeamMember; emailConfigured: boolean }) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<'email' | 'link' | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const firstName = (member.name ?? member.email).split(' ')[0];
+
+  async function send(delivery: 'email' | 'link') {
+    setBusy(delivery);
+    try {
+      const result = await apiRequest<{ link: string | null; email: string }>(
+        `/api/team/members/${member.userId}/password-reset`,
+        { method: 'POST', body: { delivery } },
+      );
+      if (delivery === 'email') {
+        toast.success(`Reset link emailed to ${result.email}.`);
+        setOpen(false);
+      } else {
+        setLink(result.link);
+      }
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : 'That did not work.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function copy() {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success('Link copied.');
+    } catch {
+      toast.error('Could not copy. Select the link and copy it by hand.');
+    }
+  }
+
+  function close() {
+    setOpen(false);
+    setLink(null);
+  }
+
+  return (
+    <>
+      <Button variant="secondary" onClick={() => (open ? close() : setOpen(true))} aria-expanded={open}>
+        Reset password
+      </Button>
+
+      {open ? (
+        // order-last + full width: the panel drops below the row's buttons
+        // instead of splitting them.
+        <div className="order-last w-full rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200 dark:bg-slate-900/60 dark:ring-slate-800">
+          <p className="text-sm text-slate-700 dark:text-slate-300">
+            {firstName} gets a link to choose a new password. It works once, expires in an hour, and signs
+            them out on every device when they use it.
+          </p>
+
+          {link ? (
+            <div className="mt-3 space-y-2">
+              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">Send this to {firstName}:</p>
+              <p className="rounded-lg bg-white p-2 font-mono text-xs break-all ring-1 ring-slate-200 dark:bg-slate-950 dark:ring-slate-800">
+                {link}
+              </p>
+              <div className="flex gap-2">
+                <Button variant="secondary" onClick={copy}>
+                  Copy link
+                </Button>
+                <Button variant="ghost" onClick={close}>
+                  Done
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {emailConfigured ? (
+                <Button onClick={() => send('email')} loading={busy === 'email'} disabled={busy !== null}>
+                  Email them a link
+                </Button>
+              ) : null}
+              <Button
+                variant="secondary"
+                onClick={() => send('link')}
+                loading={busy === 'link'}
+                disabled={busy !== null}
+              >
+                Get a link to text them
+              </Button>
+              <Button variant="ghost" onClick={close} disabled={busy !== null}>
+                Cancel
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export function TeamManager(props: TeamManagerProps) {
   const router = useRouter();
   const toast = useToast();
@@ -297,7 +405,9 @@ export function TeamManager(props: TeamManagerProps) {
               ) : null}
 
               {member.manageable ? (
-                <div className="flex gap-2">
+                // Takes the whole row while the reset panel is open, so the panel
+                // spans the row beneath the buttons.
+                <div className="flex flex-wrap justify-end gap-2 has-[[aria-expanded=true]]:basis-full">
                   {member.status === MembershipStatus.SUSPENDED ? (
                     <Button
                       variant="secondary"
@@ -335,6 +445,8 @@ export function TeamManager(props: TeamManagerProps) {
                       >
                         Make {member.role === Role.ADMIN ? 'crew' : 'admin'}
                       </Button>
+
+                      <ResetPassword member={member} emailConfigured={props.emailConfigured} />
 
                       <Button
                         variant="danger"

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 
+import { ResendVerification } from '@/components/auth/ResendVerification';
 import { Alert } from '@/components/ui/Alert';
 import { buttonClasses } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -63,13 +64,15 @@ export function VerifyEmail({ token }: { token: string | undefined }) {
         </>
       ) : (
         <>
-          {/* No promise of a resend button: there is none yet. */}
           <Alert tone="error" title="That link didn't work">
-            {message} Links expire after three days.
+            {message} Links expire after three days, and only the newest one works.
           </Alert>
+          <div className="mt-6">
+            <ResendVerification />
+          </div>
           <Link
             href="/dashboard"
-            className={buttonClasses({ size: 'lg', variant: 'secondary', fullWidth: true, className: 'mt-6' })}
+            className={buttonClasses({ size: 'lg', variant: 'ghost', fullWidth: true, className: 'mt-4' })}
           >
             Go to my dashboard
           </Link>

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { LogoMark } from '@/components/marketing/Logo';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
 import { ApiError, apiRequest } from '@/lib/api-client';
@@ -38,9 +39,7 @@ export function TopBar({
   return (
     <header className="sticky top-0 z-30 flex min-h-14 items-center gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
       <Link href="/dashboard" className="flex items-center gap-2">
-        <span className="bg-brand-600 flex size-7 items-center justify-center rounded-lg text-sm font-bold text-white">
-          J
-        </span>
+        <LogoMark className="size-7" />
         <span className="hidden text-sm font-semibold text-slate-900 sm:inline dark:text-slate-100">
           JobFlow AI
         </span>

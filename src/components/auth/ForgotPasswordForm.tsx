@@ -58,8 +58,8 @@ export function ForgotPasswordForm({ emailEnabled = true }: { emailEnabled?: boo
             </p>
             <p className="mt-2">
               If you run this deployment, setting <code>EMAIL_DRIVER</code> and{' '}
-              <code>RESEND_API_KEY</code> turns this screen on. Otherwise, contact whoever
-              runs it.
+              <code>RESEND_API_KEY</code> turns this screen on. If you are on someone&rsquo;s team,
+              the owner or an admin may be able to give you a reset link from their Team page.
             </p>
           </Alert>
 

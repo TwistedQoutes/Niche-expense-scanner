@@ -942,6 +942,32 @@ It is also what half of small operators will do regardless of what we email. The
 link is returned only when the email did *not* go out, so a token sitting in an
 inbox is not also sitting in a response body.
 
+### Getting a teammate back in
+
+An owner or admin can reset the password of anyone they outrank, from that
+person's row on the Team page (`POST /api/team/members/[id]/password-reset`).
+Nobody types a password for anyone else: the result is the same one-hour,
+single-use link that "Forgot your password?" sends, the teammate chooses the new
+password, and using it signs them out everywhere.
+
+- **By email** (when email is configured): to the teammate's own address, saying
+  who sent it and from which business. The owner never sees the link.
+- **As a link to pass on**: for crew who never check the email they signed up
+  with. Refused for an account that also belongs to another business, or is a
+  platform admin — whoever opens the link owns the whole account, and business A
+  must not be handed a key to business B.
+
+Not yourself (use "Forgot your password?"), not someone suspended, and each one
+is written to the audit log with how it was delivered.
+
+### A fresh confirmation link
+
+Settings → **Your sign-in** shows whether your email is confirmed and, if not,
+sends a new link (`POST /api/auth/verify-email/resend`) — always to the address
+on the signed-in account, since the request carries none. A new link retires the
+old one. A dead link opened from an email offers the same button, and asks the
+person to sign in first if they are not.
+
 ---
 
 ## Maps

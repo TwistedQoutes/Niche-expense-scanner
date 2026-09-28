@@ -1,12 +1,14 @@
 import { Role } from '@prisma/client';
 import type { Metadata } from 'next';
 
+import { ResendVerification } from '@/components/auth/ResendVerification';
 import { DataControls } from '@/components/settings/DataControls';
 import { SettingsForm } from '@/components/settings/SettingsForm';
 import { Alert } from '@/components/ui/Alert';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { requireAuth } from '@/lib/auth/context';
 import { prisma } from '@/lib/db/client';
+import { emailEnabled } from '@/lib/email';
 import { mapsEnabled } from '@/lib/maps/client';
 
 export const metadata: Metadata = { title: 'Settings' };
@@ -74,6 +76,34 @@ export default async function SettingsPage() {
               timezone: organization.timezone,
             }}
           />
+        </div>
+      </Card>
+
+      {/* Everyone's own sign-in, whatever their role. */}
+      <Card>
+        <CardHeader title="Your sign-in" />
+        <div className="space-y-3 p-4 pt-0">
+          <p className="text-sm text-slate-700 dark:text-slate-300">
+            {auth.user.email}{' '}
+            {auth.user.emailVerifiedAt ? (
+              <span className="font-medium text-brand-700 dark:text-brand-400">· Confirmed</span>
+            ) : (
+              <span className="font-medium text-amber-700 dark:text-amber-400">· Not confirmed yet</span>
+            )}
+          </p>
+          {!auth.user.emailVerifiedAt ? (
+            emailEnabled() ? (
+              <ResendVerification email={auth.user.email} />
+            ) : (
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                This site cannot send email yet, so there is no link to send.
+              </p>
+            )
+          ) : null}
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            To change your password, sign out and use “Forgot your password?”. If you are on someone’s
+            team, the owner or an admin may also be able to send you a reset link from the Team page.
+          </p>
         </div>
       </Card>
 

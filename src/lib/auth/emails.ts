@@ -16,15 +16,41 @@ function appUrl(path: string): string {
   return `${base}${path}`;
 }
 
-export async function sendPasswordResetEmail(userId: string, email: string): Promise<void> {
-  const { token } = await issueToken(userId, 'password_reset');
-  const link = appUrl(`/reset-password?token=${encodeURIComponent(token)}`);
+/**
+ * A fresh password-reset link, as a URL.
+ *
+ * Issuing one consumes any earlier link for the same person (`issueToken`), so
+ * there is only ever one live reset link per account.
+ */
+export async function issuePasswordResetLink(userId: string): Promise<{ link: string; expiresAt: Date }> {
+  const { token, expiresAt } = await issueToken(userId, 'password_reset');
+  return { link: appUrl(`/reset-password?token=${encodeURIComponent(token)}`), expiresAt };
+}
+
+/**
+ * The reset email.
+ *
+ * `requestedBy` is set when an owner or admin sent it from the Team page. The
+ * email then says who, and for which business — a reset nobody asked for is
+ * the classic phishing lure, and "your boss at Green Acres sent this" is what
+ * lets a crew member tell the real one from a fake.
+ */
+export async function sendPasswordResetEmail(
+  userId: string,
+  email: string,
+  requestedBy?: { name: string | null; organizationName: string },
+): Promise<void> {
+  const { link } = await issuePasswordResetLink(userId);
+
+  const opening = requestedBy
+    ? `${requestedBy.name ?? 'Someone'} at ${requestedBy.organizationName} sent you a link to reset your JobFlow AI password.`
+    : 'Someone asked to reset the password for this email address.';
 
   await sendEmail({
     to: email,
     subject: 'Reset your JobFlow AI password',
     text: [
-      'Someone asked to reset the password for this email address.',
+      opening,
       '',
       'To choose a new one, open this link within the next hour:',
       link,
@@ -47,9 +73,10 @@ export async function sendVerificationEmail(userId: string, email: string): Prom
     text: [
       'Welcome to JobFlow AI.',
       '',
-      'Confirming your email means quotes you send come from an address your',
-      'customers can reply to, and that you can recover this account if you',
-      'ever forget your password:',
+      // Says only what confirming does. It used to promise replies from
+      // customers and account recovery; neither depends on this.
+      'Please confirm this is your email address, so we know messages about',
+      'your account are reaching you:',
       link,
       '',
       'The link is good for three days.',

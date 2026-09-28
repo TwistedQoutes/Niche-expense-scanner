@@ -586,6 +586,68 @@ async function requireManageable(
   return membership;
 }
 
+/**
+ * Whether, and how, an owner or admin may reset a teammate's password.
+ *
+ * The rank rules are `requireManageable`'s: not yourself, and only somebody you
+ * outrank — so an admin can reset crew but never the owner. Someone whose access
+ * is suspended is refused too: a new password for an account that cannot sign
+ * in only looks like it fixed something.
+ *
+ * `linkAllowed` is the important half. A reset *link* handed to the owner is a
+ * link the owner could open themselves, and whoever sets the password holds the
+ * whole account — every workspace it belongs to, not just this one. So a link
+ * is only offered for an account that exists for this business alone, and never
+ * for a platform admin. Anyone else gets the reset by email, to their own inbox,
+ * where only they can use it.
+ */
+export type ResetTarget = {
+  userId: string;
+  email: string;
+  name: string | null;
+  linkAllowed: boolean;
+  /** Why the link is refused, when it is, in words for the owner. */
+  linkRefusal: string | null;
+};
+
+export async function teammateForPasswordReset(
+  db: TenantClient,
+  actor: { userId: string; role: Role; organizationId: string },
+  userId: string,
+): Promise<ResetTarget> {
+  if (userId === actor.userId) {
+    throw forbidden('To change your own password, use “Forgot your password?” on the sign-in page.');
+  }
+
+  await requireManageable(db, actor, userId);
+
+  const membership = await db.membership.findFirst({ where: { userId }, select: { status: true } });
+  if (membership?.status !== MembershipStatus.ACTIVE) {
+    throw conflict('Their access is suspended. Restore it before resetting their password.');
+  }
+
+  // The account itself is not a tenant row, and neither are its other
+  // memberships — which is exactly what this needs to see.
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: {
+      email: true,
+      name: true,
+      isPlatformAdmin: true,
+      _count: { select: { memberships: { where: { organizationId: { not: actor.organizationId } } } } },
+    },
+  });
+
+  const firstName = user.name?.split(' ')[0] ?? 'This person';
+  const linkRefusal = user.isPlatformAdmin
+    ? `${firstName}’s account has access beyond this business, so a reset can only go to their own email.`
+    : user._count.memberships > 0
+      ? `${firstName} also belongs to another business on JobFlow, so a reset can only go to their own email.`
+      : null;
+
+  return { userId, email: user.email, name: user.name, linkAllowed: linkRefusal === null, linkRefusal };
+}
+
 export function roleLabel(role: Role): string {
   switch (role) {
     case Role.OWNER:
