@@ -1,0 +1,55 @@
+{
+	"appId": "dev.jobflowai.app",
+	"appName": "JobFlow",
+	"webDir": "native/www",
+	"server": {
+		"url": "https://jobflowai.dev",
+		"errorPath": "offline.html",
+		"cleartext": false,
+		"androidScheme": "https",
+		"iosScheme": "https",
+		"allowNavigation": [
+			"jobflowai.dev"
+		]
+	},
+	"ios": {
+		"backgroundColor": "#f8fafc",
+		"contentInset": "always",
+		"appendUserAgent": "JobFlowApp/1.0 (ios)",
+		"limitsNavigationsToAppBoundDomains": true
+	},
+	"android": {
+		"backgroundColor": "#f8fafc",
+		"appendUserAgent": "JobFlowApp/1.0 (android)",
+		"webContentsDebuggingEnabled": false
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 2000,
+			"launchAutoHide": true,
+			"backgroundColor": "#f8fafc",
+			"androidSplashResourceName": "splash",
+			"androidScaleType": "CENTER_CROP",
+			"showSpinner": false
+		},
+		"PushNotifications": {
+			"presentationOptions": [
+				"badge",
+				"sound",
+				"alert"
+			]
+		},
+		"StatusBar": {
+			"style": "DARK",
+			"backgroundColor": "#f8fafc"
+		}
+	},
+	"packageClassList": [
+		"CAPCameraPlugin",
+		"CAPNetworkPlugin",
+		"PreferencesPlugin",
+		"PushNotificationsPlugin",
+		"SplashScreenPlugin",
+		"StatusBarPlugin"
+	]
+}
