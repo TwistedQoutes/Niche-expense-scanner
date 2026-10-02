@@ -28,3 +28,29 @@ src/generated/
 *.pem
 .pnp
 .pnp.js
+
+# --- Mobile apps -------------------------------------------------------------
+# The native projects themselves ARE committed: they carry the Info.plist usage
+# strings, the privacy manifest, the entitlements and the manifest permissions,
+# and losing those to a regenerate is how an app gets rejected twice.
+# What is ignored is everything a build or `npx cap sync` recreates.
+ios/App/Pods/
+ios/App/Podfile.lock
+ios/App/output/
+ios/App/App/public/
+ios/DerivedData/
+android/.gradle/
+android/local.properties
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/google-services.json
+android/capacitor-cordova-android-plugins/
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+ios/App/App/GoogleService-Info.plist
+
+# Firebase credentials. Both files identify the project and carry API keys that
+# are scoped but still not ours to publish.
+**/google-services.json
+**/GoogleService-Info.plist

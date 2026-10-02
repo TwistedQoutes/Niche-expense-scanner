@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">JobFlow</string>
+    <string name="title_activity_main">JobFlow</string>
+    <string name="package_name">dev.jobflowai.app</string>
+    <string name="custom_url_scheme">dev.jobflowai.app</string>
+
+    <!--
+        The channel a push lands in when it names none. Must match the channelId
+        the server sets on an Android message (src/lib/push/fcm.ts) and the
+        channel the app creates on launch (NativeBridge), or Android 8 and later
+        drop the notification without a word.
+    -->
+    <string name="default_notification_channel_id">leads</string>
+    <string name="default_notification_channel_name">New leads and jobs</string>
+</resources>

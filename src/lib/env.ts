@@ -96,6 +96,24 @@ const serverEnvSchema = z.object({
   TWILIO_WEBHOOK_URL: blankAsAbsent(z.string().url()),
 
   // --- AI ------------------------------------------------------------------
+  // --- Mobile apps -----------------------------------------------------------
+  /**
+   * Identifiers for the two app-link association files, served from
+   * src/app/.well-known. Absent, each file answers 404, which is what a domain
+   * with no app should say — so a web-only deployment needs none of this.
+   */
+  APPLE_TEAM_ID: blankAsAbsent(z.string().min(1)),
+  IOS_BUNDLE_ID: z.string().min(1).default('dev.jobflowai.app'),
+  ANDROID_PACKAGE_NAME: z.string().min(1).default('dev.jobflowai.app'),
+  /**
+   * SHA-256 fingerprints of the signing certificates, comma-separated.
+   *
+   * More than one because, with Play App Signing on, the certificate Android
+   * sees is Google's — not the upload key on a developer's laptop. Listing both
+   * lets a local build and the Play release verify.
+   */
+  ANDROID_CERT_FINGERPRINTS: blankAsAbsent(z.string().min(1)),
+
   // --- Push notifications ----------------------------------------------------
   /**
    * Both apps are reached through Firebase Cloud Messaging. Apple devices

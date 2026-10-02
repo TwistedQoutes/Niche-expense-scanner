@@ -79,6 +79,27 @@ export function NativeBridge({ todayJobs }: { todayJobs: OfflineJob[] }) {
 
         if (!granted || cancelled) return;
 
+        // Android 8 and later drop a notification whose channel does not exist,
+        // without an error anywhere. The id must match the one the server sets
+        // on an Android message (src/lib/push/fcm.ts) and the manifest's
+        // default_notification_channel_id. A no-op on iOS.
+        if (platform === 'ANDROID') {
+          try {
+            await PushNotifications.createChannel({
+              id: 'leads',
+              name: 'New leads and jobs',
+              description: 'A new enquiry, or a job added to your schedule.',
+              // IMPORTANCE_HIGH: this is the notification the app exists for,
+              // and it has to arrive while the phone is on a dashboard.
+              importance: 5,
+              visibility: 1,
+              vibration: true,
+            });
+          } catch (error) {
+            console.warn('[native] could not create the notification channel', error);
+          }
+        }
+
         const registration = await PushNotifications.addListener(
           'registration',
           (token: { value: string }) => {
