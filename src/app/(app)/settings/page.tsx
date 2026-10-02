@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 
 import { ResendVerification } from '@/components/auth/ResendVerification';
 import { DataControls } from '@/components/settings/DataControls';
+import { DeleteAccount } from '@/components/settings/DeleteAccount';
 import { SettingsForm } from '@/components/settings/SettingsForm';
 import { Alert } from '@/components/ui/Alert';
 import { Card, CardHeader } from '@/components/ui/Card';
@@ -116,6 +117,18 @@ export default async function SettingsPage() {
           </div>
         </Card>
       ) : null}
+
+      {/*
+        Everyone, not just owners. A crew member leaving a business must be able
+        to delete their own sign-in from in here — App Store Guideline 5.1.1(v)
+        treats "email us and ask" as not having the feature.
+      */}
+      <Card>
+        <CardHeader title="Your account" description="The sign-in that is yours, rather than the business's." />
+        <div className="p-4 pt-0">
+          <DeleteAccount email={auth.user.email} />
+        </div>
+      </Card>
     </div>
   );
 }
