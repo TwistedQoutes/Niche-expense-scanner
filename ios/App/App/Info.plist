@@ -78,9 +78,6 @@
 	<key>NSCameraUsageDescription</key>
 	<string>JobFlow uses the camera so you can photograph a job before and after you work on it. The photos are attached to that job and visible to your workspace only.</string>
 
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>JobFlow saves a copy of the job photos you take to your phone's library, so you keep your own record of the work.</string>
-
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>JobFlow lets you attach a photo you already took to a job, for the times you photographed the work before opening the app.</string>
 
