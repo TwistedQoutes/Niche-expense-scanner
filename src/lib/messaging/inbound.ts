@@ -18,6 +18,7 @@ import { recordUsage } from '@/lib/billing/usage';
 import { prisma } from '@/lib/db/client';
 import { forOrganization, type TenantClient } from '@/lib/db/tenant';
 import { createLead } from '@/lib/leads/repository';
+import { notifyNewLead } from '@/lib/push/notify';
 import {
   OPTED_OUT_TAG,
   OPT_IN_CONFIRMATION,
@@ -343,6 +344,11 @@ export async function handleMissedCall(input: {
 
     leadId = created.id;
     await recordUsage(db, input.organizationId, UsageMetric.LEADS);
+
+    // The notification that justifies the apps. This lead came from a phone
+    // call nobody answered — the owner is on a mower or under a sink — and the
+    // whole proposition is that they find out now rather than this evening.
+    void notifyNewLead(db, created);
 
     await db.conversation.update({
       where: { id: conversationId },

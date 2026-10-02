@@ -339,6 +339,7 @@ model Organization {
   invitations    Invitation[]
   timeEntries    TimeEntry[]
   crewPositions  CrewPosition[]
+  deviceTokens   DeviceToken[]
 
   @@index([status])
   @@index([createdAt])
@@ -372,6 +373,7 @@ model User {
 
   memberships   Membership[]
   authTokens    AuthToken[]
+  deviceTokens  DeviceToken[]  @relation("DeviceTokenOwner")
   assignedJobs  Job[]          @relation("JobAssignee")
   timeEntries   TimeEntry[]    @relation("TimeEntryWorker")
   /**
@@ -1685,4 +1687,47 @@ model AuditLog {
    */
   @@index([actorUserId])
   @@map("audit_logs")
+}
+
+/// A phone that has agreed to receive push notifications.
+///
+/// Scoped to the workspace as well as the person, because somebody can work for
+/// two businesses on one handset and a notification must say — and be
+/// filterable by — which one it is about. The same physical device therefore
+/// holds one row per workspace, and signing out of one does not silence the
+/// other.
+model DeviceToken {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("DeviceTokenOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The FCM registration token. Apple devices are reached through Firebase
+  /// too, so there is one kind of token here and not two.
+  token    String
+  platform DevicePlatform
+
+  /// Set when the push provider tells us the token is dead — an app deleted, a
+  /// handset wiped. Kept rather than deleted so a reinstall on the same device
+  /// can be recognised, and swept later.
+  revokedAt DateTime?
+
+  /// Refreshed every time the app registers, which it does on each launch. A
+  /// token nobody has presented for months belongs to a phone that is gone.
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  /// A token is unique to a device, and a device registers once per workspace.
+  /// The upsert target: re-registering on every launch must not accumulate rows.
+  @@unique([organizationId, token])
+  @@index([organizationId, userId])
+  @@index([userId])
+  @@map("device_tokens")
+}
+
+enum DevicePlatform {
+  IOS
+  ANDROID
 }

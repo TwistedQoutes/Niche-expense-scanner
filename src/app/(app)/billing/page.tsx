@@ -1,6 +1,7 @@
 import { PlanTier, Role, SubscriptionStatus, UsageMetric } from '@prisma/client';
 import type { Metadata } from 'next';
 
+import { BillingUnavailable } from '@/components/billing/BillingUnavailable';
 import { PlanActions } from '@/components/billing/PlanActions';
 import { UsageBar } from '@/components/billing/UsageBar';
 import { Alert } from '@/components/ui/Alert';
@@ -13,6 +14,7 @@ import { effectivePlan, readUsage } from '@/lib/billing/usage';
 import { formatDateLabel, formatRelative } from '@/lib/dates';
 import { prisma } from '@/lib/db/client';
 import { formatCents } from '@/lib/money';
+import { purchasingHidden } from '@/lib/native/platform';
 import { billingEnabled } from '@/lib/stripe/client';
 
 export const metadata: Metadata = { title: 'Billing' };
@@ -50,6 +52,18 @@ export default async function BillingPage({
   searchParams: Promise<{ checkout?: string }>;
 }) {
   const auth = await requireAuth();
+
+  // Checked here and not only in the navigation: hiding the link is not enough
+  // when the route can still be typed, and a reviewer who finds a price behind
+  // a hidden link has found a 3.1.1 violation. Nothing below this line runs in
+  // the native apps.
+  if (await purchasingHidden()) {
+    return (
+      <div className="mx-auto w-full max-w-3xl px-4 py-6">
+        <BillingUnavailable organizationName={auth.organization.name} />
+      </div>
+    );
+  }
   const { checkout } = await searchParams;
 
   const [subscription, invoices] = await Promise.all([

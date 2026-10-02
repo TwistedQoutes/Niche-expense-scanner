@@ -96,6 +96,24 @@ const serverEnvSchema = z.object({
   TWILIO_WEBHOOK_URL: blankAsAbsent(z.string().url()),
 
   // --- AI ------------------------------------------------------------------
+  // --- Push notifications ----------------------------------------------------
+  /**
+   * Both apps are reached through Firebase Cloud Messaging. Apple devices
+   * included: Firebase forwards to APNs, so there is one credential here and
+   * not two, and the server never handles an APNs certificate.
+   */
+  PUSH_DRIVER: z.enum(['none', 'fcm']).default('none'),
+  FCM_PROJECT_ID: blankAsAbsent(z.string().min(1)),
+  FCM_CLIENT_EMAIL: blankAsAbsent(z.string().min(1)),
+  /**
+   * The service account's private key. Taken as the PEM block exactly as
+   * Google's JSON file carries it; the literal "\n" sequences that survive a
+   * copy into a dashboard are normalised at use (src/lib/push/fcm.ts), because
+   * pasting a key into a hosting provider's environment editor and getting a
+   * silent signature failure is a bad hour.
+   */
+  FCM_PRIVATE_KEY: blankAsAbsent(z.string().min(1)),
+
   AI_DRIVER: z.enum(['none', 'openai']).default('none'),
   OPENAI_API_KEY: blankAsAbsent(z.string().min(1)),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
@@ -202,6 +220,11 @@ export function getEnv(): ServerEnv {
 
   if (value.EMAIL_DRIVER === 'resend' && !value.RESEND_API_KEY) {
     missing.push('RESEND_API_KEY is required when EMAIL_DRIVER is "resend"');
+  }
+  if (value.PUSH_DRIVER === 'fcm') {
+    if (!value.FCM_PROJECT_ID) missing.push('FCM_PROJECT_ID is required when PUSH_DRIVER is "fcm"');
+    if (!value.FCM_CLIENT_EMAIL) missing.push('FCM_CLIENT_EMAIL is required when PUSH_DRIVER is "fcm"');
+    if (!value.FCM_PRIVATE_KEY) missing.push('FCM_PRIVATE_KEY is required when PUSH_DRIVER is "fcm"');
   }
   if (value.SMS_DRIVER === 'twilio') {
     if (!value.TWILIO_ACCOUNT_SID) missing.push('TWILIO_ACCOUNT_SID is required when SMS_DRIVER is "twilio"');

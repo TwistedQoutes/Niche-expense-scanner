@@ -40,6 +40,7 @@ export const EXPORTED_MODELS = [
   'Job',
   'TimeEntry',
   'CrewPosition',
+  'DeviceToken',
   'Appointment',
   'Conversation',
   'Message',
@@ -73,6 +74,7 @@ async function readTables(db: TenantClient): Promise<Table[]> {
     jobs,
     timeEntries,
     crewPositions,
+    deviceTokens,
     appointments,
     conversations,
     messages,
@@ -102,6 +104,7 @@ async function readTables(db: TenantClient): Promise<Table[]> {
     db.job.findMany(oldestFirst),
     db.timeEntry.findMany({ orderBy: { startedAt: 'asc' } }),
     db.crewPosition.findMany({ orderBy: { recordedAt: 'asc' } }),
+    db.deviceToken.findMany(oldestFirst),
     db.appointment.findMany(oldestFirst),
     db.conversation.findMany(oldestFirst),
     db.message.findMany(oldestFirst),
@@ -145,6 +148,15 @@ async function readTables(db: TenantClient): Promise<Table[]> {
     { name: 'appointments', description: 'calendar bookings', rows: clean(appointments) },
     { name: 'time_entries', description: 'clock-ins and clock-outs, with their pins', rows: clean(timeEntries) },
     { name: 'crew_positions', description: 'live positions, only while clocked in', rows: clean(crewPositions) },
+    {
+      name: 'devices',
+      // The registration token itself is stripped by SECRET_KEYS, along with
+      // every other `token` column in the archive. What is left says which
+      // phones were signed in and when they last checked in — which is the part
+      // an owner might need, and is not a credential.
+      description: 'phones signed in to the mobile apps',
+      rows: clean(deviceTokens),
+    },
     { name: 'conversations', description: 'one thread per customer', rows: clean(conversations) },
     { name: 'messages', description: 'every text and email, both directions', rows: clean(messages) },
     { name: 'services', description: 'your service catalogue and prices', rows: clean(services) },

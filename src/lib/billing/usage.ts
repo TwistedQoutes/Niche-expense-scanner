@@ -4,6 +4,7 @@ import { AppError } from '@/lib/api/errors';
 import { limitFor, planFor } from '@/lib/billing/plans';
 import { currentUsagePeriod } from '@/lib/dates';
 import type { TenantClient } from '@/lib/db/tenant';
+import { purchasingHidden } from '@/lib/native/platform';
 
 /**
  * Metered usage and plan limits.
@@ -103,6 +104,12 @@ export async function recordUsage(
  * The message names the plan and the number rather than saying "limit
  * reached", because the owner's next question is always "how many do I get?"
  * and a vague error sends them to support instead of to the upgrade page.
+ *
+ * What it says last depends on where it is read. In a browser it points at the
+ * upgrade. In the native apps it must not: "Upgrade to carry on" is a call to
+ * action toward a purchase made outside Apple's in-app purchase, which is what
+ * Guideline 3.1.1 forbids. There the sentence states where the plan lives and
+ * stops. See src/lib/native/platform.ts.
  */
 export async function enforceUsageLimit(
   db: TenantClient,
@@ -113,9 +120,13 @@ export async function enforceUsageLimit(
 
   if (state.exceeded) {
     const planName = planFor(plan).name;
+    const next = (await purchasingHidden())
+      ? 'The plan is managed from a desktop browser.'
+      : 'Upgrade to carry on.';
+
     throw new AppError(
       'forbidden',
-      `Your ${planName} plan includes ${state.limit} ${LABELS[metric]} a month and you have used them all. Upgrade to carry on.`,
+      `Your ${planName} plan includes ${state.limit} ${LABELS[metric]} a month and you have used them all. ${next}`,
     );
   }
 
