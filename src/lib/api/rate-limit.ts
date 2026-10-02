@@ -29,6 +29,39 @@ export type RateLimitRule = {
 };
 
 /**
+ * Scales every ceiling below, for deployments where one address is many people.
+ *
+ * Read once at startup, defaults to 1, and clamped — a typo that multiplies
+ * every limit by ten thousand should not be the way you find out.
+ *
+ * It exists for two reasons, and neither is a backdoor: nothing in a request
+ * can change it, and a deployment that does not set it behaves exactly as
+ * before.
+ *
+ *  1. **The end-to-end suite.** It signs up more than forty workspaces from the
+ *     runner's single IP, against a production ceiling of twenty an hour. Every
+ *     test after the twentieth failed on a 429, which is what red CI looked
+ *     like rather than anything the suite was testing.
+ *  2. **A shared connection.** The note under these constants already worries
+ *     about a crew behind one office NAT. Someone running JobFlow for a
+ *     franchise with forty vans on one WAN address has the same problem and now
+ *     has a dial, instead of a patched constant.
+ *
+ * It does not change the *windows*, only the counts, so an attacker still pays
+ * the same wall-clock time per attempt.
+ */
+const MULTIPLIER = (() => {
+  const raw = Number(process.env.RATE_LIMIT_MULTIPLIER ?? '1');
+  if (!Number.isFinite(raw) || raw < 1) return 1;
+  return Math.min(raw, 100);
+})();
+
+/** A rule's ceiling for this deployment. */
+export function ceilingFor(rule: RateLimitRule): number {
+  return Math.ceil(rule.limit * MULTIPLIER);
+}
+
+/**
  * Limits are per IP, and an IP is not a person.
  *
  * A landscaping crew shares one office connection, and several people on one
@@ -98,7 +131,7 @@ export function enforceRateLimit(rule: RateLimitRule, identifier: string): void 
   }
 
   existing.count += 1;
-  if (existing.count > rule.limit) {
+  if (existing.count > ceilingFor(rule)) {
     throw rateLimited(Math.max(1, Math.ceil((existing.resetAt - now) / 1000)));
   }
 }
