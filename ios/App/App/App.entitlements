@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+		Push notifications. "production" is correct for both TestFlight and the
+		App Store; Xcode substitutes the development environment automatically
+		for a debug build, so there is nothing to remember at release time.
+	-->
+	<key>aps-environment</key>
+	<string>production</string>
+
+	<!--
+		Universal Links. Lets a quote or password-reset link open the app
+		directly instead of Safari, and is verified by Apple fetching
+		https://jobflowai.dev/.well-known/apple-app-site-association — so a
+		different app cannot claim these URLs.
+	-->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:jobflowai.dev</string>
+	</array>
+</dict>
+</plist>

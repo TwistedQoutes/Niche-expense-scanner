@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import { TeamManager } from '@/components/team/TeamManager';
 import { requireAuth, hasRole } from '@/lib/auth/context';
 import { effectivePlan } from '@/lib/billing/usage';
+import { purchasingHidden } from '@/lib/native/platform';
 import { emailEnabled } from '@/lib/email';
 import { listTeam, seatUsage } from '@/lib/team/repository';
 
@@ -43,6 +44,7 @@ export default async function TeamPage() {
         canInvite={hasRole(auth, Role.ADMIN)}
         emailConfigured={emailEnabled()}
         isDemo={auth.organization.isDemo}
+        hidePurchasing={await purchasingHidden()}
       />
     </div>
   );

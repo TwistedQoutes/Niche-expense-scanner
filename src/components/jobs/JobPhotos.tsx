@@ -2,13 +2,14 @@
 
 import { FileKind } from '@prisma/client';
 import { useRouter } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Alert } from '@/components/ui/Alert';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useToast } from '@/components/ui/Toast';
+import { CameraCancelled, captureJobPhoto, isNativeApp } from '@/lib/native/camera';
 
 export type JobPhoto = {
   id: string;
@@ -50,6 +51,31 @@ export function JobPhotos(props: JobPhotosProps) {
   const afterInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Resolved once. In a browser this stays false and the file input is used, so
+  // nothing about the web experience changes.
+  const [native, setNative] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void isNativeApp().then((value) => {
+      if (live) setNative(value);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  /** The native path: open the camera sheet, then hand the result to upload. */
+  async function capture(kind: FileKind) {
+    try {
+      const file = await captureJobPhoto();
+      await upload(kind, file);
+    } catch (caught) {
+      // Backing out of the camera is an ordinary thing to do, not an error.
+      if (caught instanceof CameraCancelled) return;
+      setError('That photo could not be taken. Try again, or add one from your library.');
+    }
+  }
 
   async function upload(kind: FileKind, file: File) {
     setBusy(kind);
@@ -199,9 +225,13 @@ export function JobPhotos(props: JobPhotosProps) {
                   size="sm"
                   className="mt-2"
                   disabled={busy !== null}
-                  onClick={() =>
-                    (kind === FileKind.JOB_BEFORE ? beforeInput : afterInput).current?.click()
-                  }
+                  onClick={() => {
+                    if (native) {
+                      void capture(kind);
+                      return;
+                    }
+                    (kind === FileKind.JOB_BEFORE ? beforeInput : afterInput).current?.click();
+                  }}
                 >
                   {busy === kind ? 'Uploading…' : `Add ${KIND_LABEL[kind]!.toLowerCase()} photo`}
                 </Button>

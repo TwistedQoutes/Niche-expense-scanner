@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The plate behind the adaptive icon's foreground. Brand green, so the
+         launcher's own mask (circle, squircle, teardrop) cuts a green shape
+         rather than exposing a white corner. -->
+    <color name="ic_launcher_background">#059669</color>
+</resources>

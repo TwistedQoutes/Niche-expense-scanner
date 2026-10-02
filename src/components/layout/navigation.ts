@@ -35,6 +35,15 @@ export type NavItem = {
    * lands.
    */
   built: boolean;
+  /**
+   * Whether this entry leads to somewhere a plan can be bought.
+   *
+   * Hidden in the native apps. App Store Review Guideline 3.1.1 forbids an app
+   * that does not use in-app purchase from showing prices or linking to a page
+   * where a subscription can be bought, and a nav entry called "Billing" is
+   * exactly that link. See src/lib/native/platform.ts.
+   */
+  purchasing?: boolean;
 };
 
 export type NavSection = {
@@ -87,7 +96,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: '/pricing-settings', label: 'Pricing', admin: true, built: true },
       { href: '/team', label: 'Team', built: true },
       { href: '/settings', label: 'Settings', built: true },
-      { href: '/billing', label: 'Billing', admin: true, built: true },
+      { href: '/billing', label: 'Billing', admin: true, built: true, purchasing: true },
     ],
   },
   {

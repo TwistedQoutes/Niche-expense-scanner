@@ -4,7 +4,11 @@ import { BottomNav } from '@/components/layout/BottomNav';
 import { DemoBanner } from '@/components/layout/DemoBanner';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { TopBar } from '@/components/layout/TopBar';
-import { hasRole, redirectForFailure, resolveAuth } from '@/lib/auth/context';
+import { NativeBridge } from '@/components/native/NativeBridge';
+import { hasRole, redirectForFailure, resolveAuth, type AuthContext } from '@/lib/auth/context';
+import { instantToWallClock } from '@/lib/dates';
+import { nativePlatform, hidesPurchasing } from '@/lib/native/platform';
+import { loadDayRoute } from '@/lib/routing/repository';
 
 /**
  * The signed-in shell.
@@ -26,6 +30,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const auth = outcome.context;
 
+  const platform = await nativePlatform();
+
+  // Resolved on the server so the billing entry is absent from the HTML in the
+  // native apps rather than hidden in it.
+  const hidePurchasing = hidesPurchasing(platform);
+
+  // Only the phones pay for this query. A browser never renders NativeBridge,
+  // so loading a day's route for every desktop page view would be work nobody
+  // reads.
+  const todayJobs = platform === null ? [] : await offlineSchedule(auth);
+
   return (
     <div className="flex min-h-dvh flex-col">
       {auth.organization.isDemo ? <DemoBanner /> : null}
@@ -40,6 +55,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Sidebar
           canSeeAdminItems={hasRole(auth, 'ADMIN')}
           isPlatformAdmin={auth.user.isPlatformAdmin}
+          hidePurchasing={hidePurchasing}
         />
 
         {/* The bottom padding clears the mobile nav bar, which is fixed. */}
@@ -47,6 +63,46 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </div>
 
       <BottomNav />
+
+      {platform === null ? null : <NativeBridge todayJobs={todayJobs} />}
     </div>
   );
+}
+
+/**
+ * Today's stops, flattened for the offline screen.
+ *
+ * Deliberately a handful of plain strings rather than the route objects: this
+ * is written into native storage and read by `native/www/offline.html`, a page
+ * with no access to the app's types or formatting helpers, so everything it
+ * needs is already a string by the time it gets there.
+ */
+async function offlineSchedule(auth: AuthContext) {
+  try {
+    const timeZone = auth.organization.timezone;
+    const wall = instantToWallClock(new Date(), timeZone);
+    const date = [
+      String(wall.year).padStart(4, '0'),
+      String(wall.month).padStart(2, '0'),
+      String(wall.day).padStart(2, '0'),
+    ].join('-');
+
+    const route = await loadDayRoute(auth.db, auth.organization.id, timeZone, date);
+
+    return route.booked.map((stop) => ({
+      time: new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone,
+      }).format(stop.startsAt),
+      customer: stop.customerName,
+      service: stop.title,
+      address: stop.address ?? undefined,
+    }));
+  } catch (error) {
+    // The offline copy is a convenience. Failing to build it must never stop
+    // the app's shell from rendering.
+    console.warn('[native] could not build the offline schedule', error);
+    return [];
+  }
 }

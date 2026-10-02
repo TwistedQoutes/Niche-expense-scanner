@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <!-- Keep in step with capacitor.config.ts and tailwind's brand-600. -->
+    <color name="brand">#059669</color>
+    <color name="splash_background">#F8FAFC</color>
+</resources>

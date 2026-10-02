@@ -50,6 +50,12 @@ export type TeamManagerProps = {
    */
   emailConfigured: boolean;
   isDemo: boolean;
+  /**
+   * True inside the native apps. Changes what the seat-limit notice says: a
+   * plain "Upgrade to add someone" is a call to action toward a purchase made
+   * outside in-app purchase, which App Store Guideline 3.1.1 forbids.
+   */
+  hidePurchasing?: boolean;
 };
 
 /**
@@ -342,8 +348,9 @@ export function TeamManager(props: TeamManagerProps) {
 
           {seatsFull && !blocked ? (
             <Alert tone="warning">
-              Every seat on your plan is in use. Upgrade to add someone, or withdraw an
-              invitation below.
+              {props.hidePurchasing
+                ? 'Every seat on your plan is in use. Withdraw an invitation below to free one up — the plan itself is managed from a desktop browser.'
+                : 'Every seat on your plan is in use. Upgrade to add someone, or withdraw an invitation below.'}
             </Alert>
           ) : null}
 

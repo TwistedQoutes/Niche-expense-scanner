@@ -16,9 +16,12 @@ import { cn } from '@/lib/cn';
 export function Sidebar({
   canSeeAdminItems,
   isPlatformAdmin = false,
+  hidePurchasing = false,
 }: {
   canSeeAdminItems: boolean;
   isPlatformAdmin?: boolean;
+  /** True inside the native apps — see src/lib/native/platform.ts. */
+  hidePurchasing?: boolean;
 }) {
   const pathname = usePathname();
   const current = activeHref(pathname);
@@ -33,7 +36,8 @@ export function Sidebar({
           (item) =>
             item.built &&
             (!item.admin || canSeeAdminItems) &&
-            (!item.platformAdmin || isPlatformAdmin),
+            (!item.platformAdmin || isPlatformAdmin) &&
+            (!item.purchasing || !hidePurchasing),
         );
         // A section whose every item is hidden by role should not leave its
         // heading behind as a label over nothing.

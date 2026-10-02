@@ -8,6 +8,7 @@ import { requireAuth } from '@/lib/auth/context';
 import { effectivePlan, enforceUsageLimit, recordUsage } from '@/lib/billing/usage';
 import { qualifyInBackground } from '@/lib/ai/lead-qualification';
 import { createLead, listLeads } from '@/lib/leads/repository';
+import { notifyNewLead } from '@/lib/push/notify';
 import { createLeadSchema, listLeadsQuerySchema } from '@/lib/validation/leads';
 
 export const runtime = 'nodejs';
@@ -60,6 +61,12 @@ export const POST = withRoute(async (request) => {
   // wait on a third-party round trip would be slower when it works and broken
   // when it does not — and a captured lead is the thing that must never fail.
   qualifyInBackground(auth, lead.id);
+
+  // Also not awaited, and for the same reason. Someone typing a lead in by hand
+  // is already looking at it, so this one mostly matters for the colleague who
+  // is not — but the call site is here so that every path that creates a lead
+  // announces it the same way.
+  void notifyNewLead(auth.db, lead);
 
   return jsonOk({ lead }, { status: 201 });
 });

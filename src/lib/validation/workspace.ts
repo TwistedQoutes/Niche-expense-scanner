@@ -21,6 +21,20 @@ export const deleteWorkspaceSchema = z.object({
 export type DeleteWorkspaceInput = z.infer<typeof deleteWorkspaceSchema>;
 
 /**
+ * Confirming the deletion of your own account.
+ *
+ * The password, and the word. No business name here: this is not about a
+ * workspace, and asking someone to type their employer's name to leave would
+ * be an odd thing to make them do.
+ */
+export const deleteAccountSchema = z.object({
+  password: z.string().min(1, 'Enter your password.').max(200),
+  confirm: z.literal('DELETE', { message: 'Type DELETE to confirm.' }),
+});
+
+export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>;
+
+/**
  * Whether the typed name matches.
  *
  * Case and surrounding spaces are forgiven; everything else must match. "green
