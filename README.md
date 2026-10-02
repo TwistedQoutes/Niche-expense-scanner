@@ -2032,6 +2032,24 @@ different secret than the server holds fails as a 400 that looks like a real bug
 
 ---
 
+## The mobile apps
+
+iOS and Android apps wrap this same web app in a native shell and add the four
+things a browser cannot do: push notifications, the camera, an offline copy of
+the day's schedule, and location. **[MOBILE.md](MOBILE.md)** is the whole
+story — architecture, the accounts and secrets to create, the store listing
+copy, both stores' privacy answers filled in, and the submission checklist.
+
+One rule worth knowing before touching anything in `src/components/billing` or
+`navigation.ts`: **the apps sell nothing and must show no price.** App Store
+Guideline 3.1.1 forbids an app that does not use in-app purchase from showing
+prices or linking to a page where a subscription can be bought, and the plans
+here are $49–$199 a month. The billing surface is removed on the server, from
+the user agent (`src/lib/native/platform.ts`), because a reviewer reads the
+page. Adding a price to a screen the app can reach is a rejection.
+
+---
+
 ## Deployment (Vercel)
 
 **[DEPLOYMENT.md](DEPLOYMENT.md) is the full going-live checklist** — every
