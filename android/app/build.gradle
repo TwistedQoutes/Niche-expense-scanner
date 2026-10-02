@@ -16,8 +16,35 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    /**
+     * Release signing.
+     *
+     * Everything comes from the environment, so no key or password is ever
+     * written into the repository. A local debug build needs none of it: when
+     * the keystore file is absent the whole config is skipped and Gradle falls
+     * back to the debug key, which is what you want on a laptop.
+     */
+    signingConfigs {
+        release {
+            def keystore = file('upload-keystore.jks')
+            if (keystore.exists()) {
+                storeFile keystore
+                storePassword System.getenv('JOBFLOW_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('JOBFLOW_KEY_ALIAS')
+                keyPassword System.getenv('JOBFLOW_KEY_PASSWORD')
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig file('upload-keystore.jks').exists() ? signingConfigs.release : signingConfigs.debug
+
+            // Left off deliberately. The app is a thin native shell around a
+            // webview — there is almost no Java or Kotlin here to shrink, and
+            // R8 has a long history of stripping something a Capacitor plugin
+            // reaches for by reflection, which fails at runtime on a tester's
+            // phone rather than at build time.
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
