@@ -2,7 +2,7 @@
   "name": "jobflow-ai",
   "version": "0.1.0",
   "private": true,
-  "description": "JobFlow AI — turn leads into jobs, automatically. Lead-to-job management for local service businesses.",
+  "description": "JobFlow AI \u2014 turn leads into jobs, automatically. Lead-to-job management for local service businesses.",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -46,6 +46,7 @@
     "pg": "^8.23.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "resend": "^6.32.0",
     "tailwind-merge": "^3.6.0",
     "zod": "^4.6.1"
   },
