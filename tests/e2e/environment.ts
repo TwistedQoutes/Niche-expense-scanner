@@ -60,4 +60,16 @@ export const E2E_ENV = {
    */
   TWILIO_AUTH_TOKEN: 'e2e-twilio-token-not-a-real-credential',
   TWILIO_WEBHOOK_URL: `${E2E_ORIGIN}/api/webhooks/twilio`,
+
+  /*
+   * The suite signs up more than forty workspaces, and every one of them
+   * arrives from the same address — the runner's. Against the shipped ceiling
+   * of twenty signups an hour, everything after the twentieth test failed on a
+   * 429 that had nothing to do with what it was testing.
+   *
+   * Ten is enough headroom for the suite to grow a good deal further without
+   * anyone having to think about this again, and it only scales the counts:
+   * the windows, and so the wall-clock cost of an attack, are untouched.
+   */
+  RATE_LIMIT_MULTIPLIER: '10',
 } as const;

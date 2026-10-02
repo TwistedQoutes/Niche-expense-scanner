@@ -5,6 +5,7 @@ import {
   RATE_LIMITS,
   clientIp,
   enforceRateLimit,
+  ceilingFor,
   resetRateLimits,
 } from '@/lib/api/rate-limit';
 
@@ -78,6 +79,33 @@ describe('the configured rules', () => {
     // a customer, where a generous ceiling still stops a brute force.
     expect(RATE_LIMITS.login.limit).toBeGreaterThanOrEqual(20);
     expect(RATE_LIMITS.write.limit).toBeGreaterThanOrEqual(100);
+  });
+});
+
+describe('the deployment multiplier', () => {
+  it('does not move the shipped ceilings', () => {
+    // The default is 1, and this file runs with RATE_LIMIT_MULTIPLIER unset.
+    // A change that quietly raised every production limit would show up here.
+    expect(ceilingFor(RATE_LIMITS.signup)).toBe(RATE_LIMITS.signup.limit);
+    expect(ceilingFor(RATE_LIMITS.login)).toBe(RATE_LIMITS.login.limit);
+    expect(ceilingFor(RATE_LIMITS.demo)).toBe(RATE_LIMITS.demo.limit);
+  });
+
+  it('never returns less than the rule asks for', () => {
+    // A multiplier below 1 would tighten limits rather than loosen them, which
+    // is not what the setting is for and would lock people out of a deployment
+    // whose operator fat-fingered a decimal point.
+    for (const rule of Object.values(RATE_LIMITS)) {
+      expect(ceilingFor(rule)).toBeGreaterThanOrEqual(rule.limit);
+    }
+  });
+
+  it('keeps a ceiling a whole number', () => {
+    // The count it is compared against is an integer; a fractional ceiling
+    // would make the last permitted request depend on rounding.
+    for (const rule of Object.values(RATE_LIMITS)) {
+      expect(Number.isInteger(ceilingFor(rule))).toBe(true);
+    }
   });
 });
 
